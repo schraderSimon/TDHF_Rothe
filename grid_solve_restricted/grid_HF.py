@@ -183,8 +183,8 @@ if __name__ == "__main__":
     R_list=[-1.15, 1.15]
     Z_list=[3,1]
     alpha=0.5
-    gridsize = 30
-    num_gridpoints = 1500
+    gridsize = 50
+    num_gridpoints = 700
     
     S=solver(gridsize,num_gridpoints,Z_list,R_list,alpha,nelec=sum(Z_list))
     orbs=S.C_init[:,:S.norb]
@@ -201,14 +201,14 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
-    sys.exit(0)
     E0 = 0.0534  # Maximum field strength
     omega = 0.06075  # Laser frequency
     t_c = 2 * np.pi / omega  # Optical cycle
-    n_cycles = 3
+    n_cycles = 1
 
     td = n_cycles * t_c  # Duration of the laser pulse
     tfinal = td  # Total time of the simulation
+    tfinal=10
     t=np.linspace(0,tfinal,1000)
     fieldfunc=laserfield(E0, omega, td)
     plt.plot(t, fieldfunc(t))
