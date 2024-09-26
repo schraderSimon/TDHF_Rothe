@@ -16,6 +16,7 @@ from scipy.optimize import minimize
 from numpy import array,sqrt
 from numpy import exp
 from numba import cuda
+from scipy.linalg import fractional_matrix_power, eigh, eig
 
 np.set_printoptions(linewidth=300)
 def gaussian_quadrature(a, b, n):
@@ -25,8 +26,8 @@ def gaussian_quadrature(a, b, n):
     return points, weights
 
 
-n = 200
-a, b = -10, 10
+n = 800
+a, b = -15, 15
 points, weights = gaussian_quadrature(a, b, n)
 sqrt_weights=np.sqrt(weights)
 
@@ -68,10 +69,13 @@ params1_reshaped=np.array(params1).reshape((len(params1)//6,6))
 gaussian_nonlincoeffs=np.concatenate((params0_reshaped[:,:4],params1_reshaped[:,:4]))
 """
 gaussian_nonlincoeffs=[array([ 1.73419,  0.11343, -1.27528,  0.20927]), array([ 0.58529, -0.10182,  0.7117 , -1.76771]), array([ 2.11929,  2.17511, -0.88734, -1.16533]), array([ 1.29685,  0.04576, -0.1202 , -0.17472]), array([ 1.62669,  0.90041, -0.96891, -0.1685 ]), array([ 0.6496 , -0.11852, -0.91406,  0.3228 ]), array([ 0.49845,  0.03352, -0.13568, -0.78859]), array([-0.54314,  0.17441,  0.32153, -0.12239]), array([1.90321, 1.51622, 0.24345, 1.22702]), array([1.3594 , 0.2869 , 0.15527, 0.46575]), array([ 1.5183 , -0.10313, -0.91311, -0.04304]), array([ 0.5269 , -0.08562,  0.34713, -1.45937]), array([ 0.75832,  0.35972, -0.7476 , -1.51205]), array([ 1.13422,  0.20182,  0.17226, -0.24265]), array([ 1.4865 ,  0.50411, -1.10446, -0.51211]), array([ 0.4632 , -0.04265, -0.92913,  0.11099]), array([ 0.41095, -0.02081, -0.06822, -0.23986]), array([-0.76367,  0.09731,  0.46446, -0.79924]), array([ 0.24858, -0.00625,  0.41402, -0.16231]), array([-0.27584,  0.00092,  0.32731,  0.08046])]
-for k in range(1):
-    pass
-    #params=[1/sqrt(2)+0.1*np.random.rand()-0.05,0,20*np.random.rand()-10,0]
-    #gaussian_nonlincoeffs.append(params)
+n_extra=100
+gaussian_nonlincoeffs=[]
+pos_list=np.linspace(-8,12,n_extra)
+for k in range(len(pos_list)):
+    
+    params=[sqrt(4),0,0,pos_list[k]]
+    gaussian_nonlincoeffs.append(params)
 
 gaussian_nonlincoeffs=np.array(gaussian_nonlincoeffs)
 
@@ -84,7 +88,7 @@ def minus_half_laplacian(x,a,b,p,q):
     bredde=(a**2 + 1j*b)
     qminx=q-x
     return (bredde - 2.0*(0.5j*p + bredde*qminx)**2)*gauss(x,a,b,p,q)
-@jit(nopython=True, fastmath=True)
+@jit(nopython=True, fastmath=True,cache=True)
 def exp_pade(x):
     numerator = 1680 + 840*x + 180*x**2 + 20*x**3 + x**4
     denominator = 1680 - 840*x + 180*x**2 - 20*x**3 + x**4
@@ -136,7 +140,7 @@ def calculate_onebody_and_overlap(functions,minus_half_laplacians,potential_grid
             overlap_matrix[i,j]=overlap_integraded
     return onebody_matrix,overlap_matrix
 e_e_grid=e_e_interaction(points)
-@jit(nopython=True,fastmath=True)
+@jit(nopython=True,fastmath=True,cache=True)
 def calculate_twobody_integrals_numba(functions, e_e_grid, weights, num_gauss):
     twobody_integrals = np.zeros((num_gauss,num_gauss,num_gauss,num_gauss), dtype=np.complex128)
     
@@ -194,6 +198,7 @@ def restricted_hartree_fock(S, onebody, twobody, num_electrons, max_iterations=1
     # Step 1: Orthogonalize the basis (S^-1/2)
     s_eigenvalues, s_eigenvectors = linalg.eigh(S)
     X = linalg.inv(linalg.sqrtm(S))
+    print(s_eigenvalues)
 
     # Step 2: Initial guess for density matrix
     if C_init is not None:
@@ -230,7 +235,7 @@ def restricted_hartree_fock(S, onebody, twobody, num_electrons, max_iterations=1
         print(f"Warning: Reached maximum iterations ({max_iterations}) without converging.")
 
     return E, C, F,epsilon
-def calculate_energy(gaussian_nonlincoeffs,return_all=False,C_init=None,maxiter=100):
+def calculate_energy(gaussian_nonlincoeffs,return_all=False,C_init=None,maxiter=20):
     gaussian_nonlincoeffs=gaussian_nonlincoeffs.reshape((num_gauss,4))
     functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs,points)
     onebody_matrix,overlap_matrix=calculate_onebody_and_overlap(functions,minus_half_laplacians,potential_grid,wT)
@@ -260,10 +265,20 @@ def make_orbitals_old(C,gaussian_nonlincoeffs):
             orbital+=C[j,i]*functions[j]
         orbitals.append(orbital)
     return np.array(orbitals)
+def make_orbitals_from_functions(C,functions):
+    orbitals=[]
+    nbasis=C.shape[0]
+    norbs=C.shape[1]
+    for i in range(norbs):
+        orbital=np.zeros_like(points,dtype=np.complex128)
+        for j in range(nbasis):
+            orbital+=C[j,i]*functions[j]
+        orbitals.append(orbital)
+    return np.array(orbitals)
 def make_orbitals(C,gaussian_nonlincoeffs):
     functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs.reshape((num_gauss,4)),points)
     return make_orbitals_numba(C,gaussian_nonlincoeffs,functions)
-@jit(nopython=True,fastmath=True)
+@jit(nopython=True,fastmath=True,cache=True)
 def make_orbitals_numba(C,gaussian_nonlincoeffs,functions):
     nbasis=C.shape[0]
     norbs=C.shape[1]
@@ -299,7 +314,7 @@ def calculate_Fgauss(fockOrbitals,gaussian_nonlincoeffs,num_gauss,time_dependent
     return calculate_Fgauss_fast(np.array(fockOrbitals),gaussian_nonlincoeffs,num_gauss,time_dependent_potential,np.array(functions),np.array(minus_half_laplacians))
 weighted_e_e_grid = e_e_grid * weights[:, np.newaxis]
 
-@jit(nopython=True,fastmath=True)
+@jit(nopython=True,fastmath=True,cache=True)
 def calculate_Fgauss_fast(fockOrbitals,gaussian_nonlincoeffs,num_gauss,time_dependent_potential,functions,minus_half_laplacians):
     nFock=len(fockOrbitals)
     gaussian_nonlincoeffs=gaussian_nonlincoeffs.reshape((num_gauss,4))
@@ -319,7 +334,7 @@ def calculate_Fgauss_fast(fockOrbitals,gaussian_nonlincoeffs,num_gauss,time_depe
             exchange_term = np.dot(np.conj(fockOrbitals[j]) * functions[i], weighted_e_e_grid)
             Fgauss[i] -= exchange_term * fockOrbitals[j]
     return Fgauss
-@jit(nopython=True,fastmath=True)
+@jit(nopython=True,fastmath=True,cache=True)
 def calculate_Ftimesorbitals(orbitals,FocktimesGauss):
     nbasis=orbitals.shape[0]
     norbs=orbitals.shape[1]
@@ -355,6 +370,7 @@ nonlin_params=sol.x
 print(list(nonlin_params.reshape((num_gauss,4))))
 print(len(nonlin_params)//4)
 """
+
 def calculate_Fock_and_overlap(C,gaussian_nonlincoeffs,time_dependent_potential=None):
     gaussian_nonlincoeffs=gaussian_nonlincoeffs.reshape((num_gauss,4))
     functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs,points)
@@ -369,6 +385,18 @@ def calculate_Fock_and_overlap(C,gaussian_nonlincoeffs,time_dependent_potential=
     K = np.einsum('mlsn,ls->mn', twobody_integrals, P)
     F = onebody_matrix+J - 0.5*K
     return F,overlap_matrix
+def calculate_Fock_and_overlap_from_functions(C,functions,minus_half_laplacians,twobody_integrals,time_dependent_potential=None):
+    if time_dependent_potential is not None:
+        onebody_matrix,overlap_matrix=calculate_onebody_and_overlap(functions,minus_half_laplacians,potential_grid+time_dependent_potential,wT)
+    else:
+        onebody_matrix,overlap_matrix=calculate_onebody_and_overlap(functions,minus_half_laplacians,potential_grid,wT)
+    P = 2*np.einsum("mj,vj->mv", C, C.conj())
+    E_old = 0
+    J = np.einsum('mnsl,ls->mn', twobody_integrals, P)
+    K = np.einsum('mlsn,ls->mn', twobody_integrals, P)
+    F = onebody_matrix+J - 0.5*K
+    return F,overlap_matrix
+
 def calculate_x_expectation(C,gaussian_nonlincoeffs):
     gaussian_nonlincoeffs=gaussian_nonlincoeffs.reshape((num_gauss,4))
     functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs,points)
@@ -515,6 +543,55 @@ class Rothe_propagation:
         plt.legend()
         plt.savefig("Oribtals_t=%.3f.png"%(t), dpi=200)
         plt.close()
+
+
+def propagate_linear_basis(params_initial,lincoeffs_initial,pulse,timestep,points,nsteps):
+    lincoeffs = lincoeffs_initial
+    params = params_initial
+    gaussian_nonlincoeffs=params_initial.reshape((num_gauss,4))
+    functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs,points)
+    orbitals = make_orbitals(lincoeffs, params)
+    all_orbitals = [orbitals]
+    F, S = calculate_Fock_and_overlap(lincoeffs, params, None)
+    X = linalg.inv(linalg.sqrtm(S))
+    F_prime = X.conj().T @ F @ X
+    epsilon, C_prime = linalg.eigh(F_prime)
+    C = X @ C_prime[:,:2]
+    basis_transform=X@C_prime
+    F_eigenbasis=np.conj(basis_transform).T @ F @ basis_transform
+    lincoeffs=np.zeros_like(lincoeffs)
+    lincoeffs[0,0]=1
+    lincoeffs[1,1]=1
+    I=np.eye(len(F))
+    #print(C)
+    #print(lincoeffs)
+    #print(F_eigenbasis)
+    
+    #sys.exit(1)
+    twobody_integrals=calculate_twobody_integrals_numba(np.ascontiguousarray(functions), e_e_grid, weights, num_gauss)
+    for i in range(nsteps):
+        print(i / nsteps, i * timestep)
+        time_dependent_potential = pulse(i * timestep + 0.5 * timestep) * points
+        
+        # Compute Fock and overlap matrices
+        F, S = calculate_Fock_and_overlap_from_functions(basis_transform@lincoeffs, functions,minus_half_laplacians,twobody_integrals, time_dependent_potential)
+        F=np.conj(basis_transform).T @ F @ basis_transform
+        # Transform F and S to the unitary basis
+        print(np.linalg.eigh(F)[0][:5])
+        # Time evolution matrices in the unitary basis (overlap is identity)
+        Spf = np.eye(F.shape[0]) + 1j * dt / 2 * F
+        Smf = np.conj(Spf).T
+        # Solve for the updated linear coefficients in the unitary basis
+        lincoeffs = np.linalg.solve(Spf,Smf@lincoeffs)
+        
+        
+        # Update orbitals
+        orbitals = make_orbitals_from_functions(basis_transform@lincoeffs, functions)
+        all_orbitals.append(orbitals)
+
+    # Save the results
+    np.savez("linear_basis_orbitals_unitary.npz", Cvals=all_orbitals, gridpoints=points)
+    return lincoeffs, params
 def laserfield(E0, omega, td):
     """
     Sine-squared laser pulse.
@@ -533,19 +610,28 @@ time_dependent_potential=0.1*points #I. e. 0.1*x - very strong field
 
 E,lincoeff_initial,epsilon=calculate_energy(gaussian_nonlincoeffs,return_all=True)
 
-x_expectation_t0=calculate_x_expectation(lincoeff_initial,gaussian_nonlincoeffs)
-E0 = 0#0.0534   # Maximum field strength
+E0 = 0.1  # Maximum field strength
 omega = 0.06075  # Laser frequency
 t_c = 2 * np.pi / omega  # Optical cycle
 n_cycles = 1
 
 td = n_cycles * t_c  # Duration of the laser pulse
 tfinal = td  # Total time of the simulation
+tfinal=30
 print(tfinal)
 t=np.linspace(0,tfinal,1000)
 fieldfunc=laserfield(E0, omega, td)
-plt.plot(t, fieldfunc(t))
-plt.show()
+#plt.plot(t, fieldfunc(t))
+#plt.show()
+propagate_linear_basis(gaussian_nonlincoeffs,lincoeff_initial,fieldfunc,0.1,points,300)
+sys.exit(0)
+
+
+
+
+
+x_expectation_t0=calculate_x_expectation(lincoeff_initial,gaussian_nonlincoeffs)
+
 rothepropagator=Rothe_propagation(gaussian_nonlincoeffs,lincoeff_initial,pulse=fieldfunc,timestep=dt,points=points)
 nsteps=2500
 x_expectations=rothepropagator.propagate_nsteps(nsteps)

@@ -125,22 +125,29 @@ class solver():
             self.C = eigvec
             err=np.linalg.norm(D@self.Fock-self.Fock@D)
             print(i,self.get_energy())
-            if err<1e-12:
+            if err<1e-11:
                 break
         return self.C
     def propagate(self,field,dt,Tmax):
         C=self.C
+        C_trajectory=[]
         t=0
         self.dipole=[self.get_dipole_moment(C)]
         self.energy=[self.get_energy(C)]
         self.t=[0]
+        C_trajectory.append(C[:,:2])
         while t<Tmax:
             print(t/Tmax)
-            C=self.propagate_onestep_second_order(C,field,t,dt)
+            C=self.propagate_onestep_first_order(C,field,t,dt)
             t+=dt
             self.t.append(t)
             self.dipole.append(self.get_dipole_moment(C))
             self.energy.append(self.get_energy(C))
+            print(C.shape)
+            #plt.plot(self.grid,abs(C[:,0])**2);plt.plot(self.grid,abs(C[:,1])**2);plt.show()
+            C_trajectory.append(C)
+        filename="grid_solution"
+        np.savez(filename,gridpoints=self.grid,Cvals=C_trajectory)
         return self.t,self.dipole,self.energy
     def propagate_onestep_second_order(self,C,field,t,dt):
         C_old=C.copy()
@@ -166,6 +173,19 @@ class solver():
 
         self.C=C_dt
         return C_dt
+    def propagate_onestep_first_order(self,C,field,t,dt):
+        C_old=C.copy()
+        #1. Calculate "temporary" \tilde C(t+dt/2) using F(C(t),t+dt/4)
+        D=self.calculate_density(C)
+        Fock=self.calculate_Fock_matrix(D)
+        Fock+=field(t+dt/2)*np.diag(self.grid) #Add the field to the Fock matrix
+        
+        print(np.linalg.eigh(Fock)[0][:5])
+        I=np.eye(self.num_gridpoints,dtype=np.complex128)
+        A_op=I+1j*dt/2*Fock
+        C_nexstep=np.linalg.solve(A_op,np.conj(A_op).T@C[:,:self.norb])
+        self.C=C_nexstep
+        return C_nexstep
 def laserfield(E0, omega, td):
     """
     Sine-squared laser pulse.
@@ -183,8 +203,8 @@ if __name__ == "__main__":
     R_list=[-1.15, 1.15]
     Z_list=[3,1]
     alpha=0.5
-    gridsize = 50
-    num_gridpoints = 700
+    gridsize = 15
+    num_gridpoints = 800
     
     S=solver(gridsize,num_gridpoints,Z_list,R_list,alpha,nelec=sum(Z_list))
     orbs=S.C_init[:,:S.norb]
@@ -201,20 +221,20 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
-    E0 = 0.0534  # Maximum field strength
+    E0 = 0.1  # Maximum field strength
     omega = 0.06075  # Laser frequency
     t_c = 2 * np.pi / omega  # Optical cycle
     n_cycles = 1
 
     td = n_cycles * t_c  # Duration of the laser pulse
     tfinal = td  # Total time of the simulation
-    tfinal=10
-    t=np.linspace(0,tfinal,1000)
+    tfinal=30
+    t=np.linspace(0,tfinal,300)
     fieldfunc=laserfield(E0, omega, td)
     plt.plot(t, fieldfunc(t))
 
     plt.show()
-    t, dipole, energy = S.propagate(fieldfunc, 0.2, tfinal)
+    t, dipole, energy = S.propagate(fieldfunc, 0.1, tfinal)
     plt.plot(t, np.array(dipole))
     plt.ylim(-2.4, -0.6)
     plt.show()
