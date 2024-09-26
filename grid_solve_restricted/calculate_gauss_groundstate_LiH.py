@@ -26,8 +26,8 @@ def gaussian_quadrature(a, b, n):
     return points, weights
 
 
-n = 800
-a, b = -15, 15
+n = 400
+a, b = -30, 30
 points, weights = gaussian_quadrature(a, b, n)
 sqrt_weights=np.sqrt(weights)
 
@@ -69,12 +69,11 @@ params1_reshaped=np.array(params1).reshape((len(params1)//6,6))
 gaussian_nonlincoeffs=np.concatenate((params0_reshaped[:,:4],params1_reshaped[:,:4]))
 """
 gaussian_nonlincoeffs=[array([ 1.73419,  0.11343, -1.27528,  0.20927]), array([ 0.58529, -0.10182,  0.7117 , -1.76771]), array([ 2.11929,  2.17511, -0.88734, -1.16533]), array([ 1.29685,  0.04576, -0.1202 , -0.17472]), array([ 1.62669,  0.90041, -0.96891, -0.1685 ]), array([ 0.6496 , -0.11852, -0.91406,  0.3228 ]), array([ 0.49845,  0.03352, -0.13568, -0.78859]), array([-0.54314,  0.17441,  0.32153, -0.12239]), array([1.90321, 1.51622, 0.24345, 1.22702]), array([1.3594 , 0.2869 , 0.15527, 0.46575]), array([ 1.5183 , -0.10313, -0.91311, -0.04304]), array([ 0.5269 , -0.08562,  0.34713, -1.45937]), array([ 0.75832,  0.35972, -0.7476 , -1.51205]), array([ 1.13422,  0.20182,  0.17226, -0.24265]), array([ 1.4865 ,  0.50411, -1.10446, -0.51211]), array([ 0.4632 , -0.04265, -0.92913,  0.11099]), array([ 0.41095, -0.02081, -0.06822, -0.23986]), array([-0.76367,  0.09731,  0.46446, -0.79924]), array([ 0.24858, -0.00625,  0.41402, -0.16231]), array([-0.27584,  0.00092,  0.32731,  0.08046])]
-n_extra=100
-gaussian_nonlincoeffs=[]
-pos_list=np.linspace(-8,12,n_extra)
+n_extra=20
+#gaussian_nonlincoeffs=[]
+pos_list=np.linspace(-25,25,n_extra)
 for k in range(len(pos_list)):
-    
-    params=[sqrt(4),0,0,pos_list[k]]
+    params=[sqrt(2),0,0,pos_list[k]]
     gaussian_nonlincoeffs.append(params)
 
 gaussian_nonlincoeffs=np.array(gaussian_nonlincoeffs)
@@ -579,7 +578,7 @@ def propagate_linear_basis(params_initial,lincoeffs_initial,pulse,timestep,point
         # Transform F and S to the unitary basis
         print(np.linalg.eigh(F)[0][:5])
         # Time evolution matrices in the unitary basis (overlap is identity)
-        Spf = np.eye(F.shape[0]) + 1j * dt / 2 * F
+        Spf = np.eye(F.shape[0]) + 2j * dt * F
         Smf = np.conj(Spf).T
         # Solve for the updated linear coefficients in the unitary basis
         lincoeffs = np.linalg.solve(Spf,Smf@lincoeffs)
@@ -610,20 +609,19 @@ time_dependent_potential=0.1*points #I. e. 0.1*x - very strong field
 
 E,lincoeff_initial,epsilon=calculate_energy(gaussian_nonlincoeffs,return_all=True)
 
-E0 = 0.1  # Maximum field strength
+E0 = 0.06  # Maximum field strength
 omega = 0.06075  # Laser frequency
 t_c = 2 * np.pi / omega  # Optical cycle
-n_cycles = 1
-
+n_cycles = 3
+dt=0.05
 td = n_cycles * t_c  # Duration of the laser pulse
 tfinal = td  # Total time of the simulation
-tfinal=30
 print(tfinal)
 t=np.linspace(0,tfinal,1000)
 fieldfunc=laserfield(E0, omega, td)
 #plt.plot(t, fieldfunc(t))
 #plt.show()
-propagate_linear_basis(gaussian_nonlincoeffs,lincoeff_initial,fieldfunc,0.1,points,300)
+propagate_linear_basis(gaussian_nonlincoeffs,lincoeff_initial,fieldfunc,dt,points,int(tfinal/dt))
 sys.exit(0)
 
 

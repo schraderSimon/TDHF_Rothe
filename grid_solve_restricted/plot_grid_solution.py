@@ -10,7 +10,7 @@ Cvals_grid=orbitals_grid['Cvals']
 orbitals_gauss=np.load(name_gauss)
 grid_gauss=orbitals_gauss['gridpoints']
 Cvals_gauss=orbitals_gauss['Cvals']
-times=np.linspace(0,30,Cvals_gauss.shape[0])
+times=np.linspace(0,310,Cvals_gauss.shape[0])
 dg=grid_grid[1]-grid_grid[0]
 for i in range(0,Cvals_gauss.shape[0],10):
     plt.figure()

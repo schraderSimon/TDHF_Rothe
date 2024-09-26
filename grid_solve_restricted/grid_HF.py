@@ -143,7 +143,6 @@ class solver():
             self.t.append(t)
             self.dipole.append(self.get_dipole_moment(C))
             self.energy.append(self.get_energy(C))
-            print(C.shape)
             #plt.plot(self.grid,abs(C[:,0])**2);plt.plot(self.grid,abs(C[:,1])**2);plt.show()
             C_trajectory.append(C)
         filename="grid_solution"
@@ -203,8 +202,8 @@ if __name__ == "__main__":
     R_list=[-1.15, 1.15]
     Z_list=[3,1]
     alpha=0.5
-    gridsize = 15
-    num_gridpoints = 800
+    gridsize = 30
+    num_gridpoints = 400
     
     S=solver(gridsize,num_gridpoints,Z_list,R_list,alpha,nelec=sum(Z_list))
     orbs=S.C_init[:,:S.norb]
@@ -221,20 +220,19 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
-    E0 = 0.1  # Maximum field strength
+    E0 = 0.06  # Maximum field strength
     omega = 0.06075  # Laser frequency
     t_c = 2 * np.pi / omega  # Optical cycle
-    n_cycles = 1
+    n_cycles = 3
 
     td = n_cycles * t_c  # Duration of the laser pulse
     tfinal = td  # Total time of the simulation
-    tfinal=30
     t=np.linspace(0,tfinal,300)
     fieldfunc=laserfield(E0, omega, td)
     plt.plot(t, fieldfunc(t))
 
     plt.show()
-    t, dipole, energy = S.propagate(fieldfunc, 0.1, tfinal)
+    t, dipole, energy = S.propagate(fieldfunc, 0.05, tfinal)
     plt.plot(t, np.array(dipole))
     plt.ylim(-2.4, -0.6)
     plt.show()
