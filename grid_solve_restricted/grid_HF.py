@@ -136,6 +136,8 @@ class solver():
         self.energy=[self.get_energy(C)]
         self.t=[0]
         C_trajectory.append(C[:,:2])
+        dipole_trajectory=[]
+        dipole_trajectory.append(self.get_dipole_moment(C))
         while t<Tmax:
             print(t/Tmax)
             C=self.propagate_onestep_first_order(C,field,t,dt)
@@ -145,8 +147,9 @@ class solver():
             self.energy.append(self.get_energy(C))
             #plt.plot(self.grid,abs(C[:,0])**2);plt.plot(self.grid,abs(C[:,1])**2);plt.show()
             C_trajectory.append(C)
+            dipole_trajectory.append(self.get_dipole_moment(C))
         filename="grid_solution"
-        np.savez(filename,gridpoints=self.grid,Cvals=C_trajectory)
+        np.savez(filename,gridpoints=self.grid,Cvals=C_trajectory,dipole=dipole_trajectory)
         return self.t,self.dipole,self.energy
     def propagate_onestep_second_order(self,C,field,t,dt):
         C_old=C.copy()
@@ -202,8 +205,8 @@ if __name__ == "__main__":
     R_list=[-1.15, 1.15]
     Z_list=[3,1]
     alpha=0.5
-    gridsize = 30
-    num_gridpoints = 400
+    gridsize = 15
+    num_gridpoints = 100
     
     S=solver(gridsize,num_gridpoints,Z_list,R_list,alpha,nelec=sum(Z_list))
     orbs=S.C_init[:,:S.norb]
@@ -220,7 +223,7 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
-    E0 = 0.06  # Maximum field strength
+    E0 = 0.02  # Maximum field strength
     omega = 0.06075  # Laser frequency
     t_c = 2 * np.pi / omega  # Optical cycle
     n_cycles = 3
