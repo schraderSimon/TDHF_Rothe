@@ -3,7 +3,7 @@ from numpy import pi,sqrt
 import matplotlib.pyplot as plt
 import os
 import sys
-fieldstrengh=float(sys.argv[2])
+fieldstrengh=float(sys.argv[1])
 num_gauss=20
 name_gauss="linearbasis_%.3f_%d.npz"%(fieldstrengh,num_gauss)
 name_grid="grid_solution_%.3f.npz"%fieldstrengh
@@ -21,7 +21,7 @@ dg=grid_grid[1]-grid_grid[0]
 plt.plot(times_grid,dipmom_grid,label="Grid")
 plt.plot(times_gauss,dipmom_gauss,label="Gauss")
 try:
-    name_Rothe="Rothe_wavefunctions%.3f_%d.npz"%(fieldstrengh,int(sys.argv[1]))
+    name_Rothe="Rothe_wavefunctions%.3f_%d_%d.npz"%(fieldstrengh,int(sys.argv[2]),int(sys.argv[3]))
 
     rothe=np.load(name_Rothe)
 
@@ -30,7 +30,7 @@ try:
 
     plt.plot(times_Rothe,dipmom_Rothe,label="Rothe_linear")
 except:
-    pass
+    raise ValueError("No Rothe data found")
 
 plt.legend()
 plt.savefig("dipole_moment.png")
