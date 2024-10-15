@@ -18,7 +18,7 @@ from numpy import exp
 from numpy import cosh, tanh, arctanh
 #from sympy import *
 from quadratures import *
-np.set_printoptions(linewidth=300, precision=2, suppress=True, formatter={'float': '{:0.2e}'.format})
+np.set_printoptions(linewidth=300, precision=5, suppress=True, formatter={'float': '{:0.8e}'.format})
 class ConvergedError(Exception):
     def __init__(self, message):
         self.message = message
@@ -43,7 +43,40 @@ def save_wave_function(filename, wave_function, time_step,xval,time):
     times.append(time)
     # Append new wave function at the current time step
     np.savez(filename, params=params, time_step=time_step,times=times,xvals=xvals)
+def cosine4_mask(x, a, b):
+    a0=0.85*a
+    b0=b*0.85
+    returnval=np.zeros_like(x)
+    left_absorber=np.cos(pi/2*(a0-x)/(a-a0))**(1/4)
+    right_absorber=np.cos(pi/2*(b0-x)/(b0-b))**(1/4)
+    returnval[(x<a0) & (x>a)]=left_absorber[(x<a0) & (x>a)]
+    returnval[(x>b0) & (x<b)]=right_absorber[(x>b0) & (x<b)]
+    returnval[(x<a) | (x>b)]=0
+    returnval[(x>a0) & (x<b0)]=1
+    return returnval
 
+def minimize_hessian(error_function,start_params,num_gauss):
+    params=start_params
+    param_list=[]
+    error_list=[]
+    i_min=5
+    i_max=15
+    for i in range(i_max):
+        error,grad,hess=error_function(params,num_gauss,hessian=True)
+        diag_hess=np.diag(np.diag(hess))
+        hess_inv=np.linalg.inv(hess+1000*diag_hess)
+        paramsNew=params-np.dot(hess_inv,grad)
+        #print("Iteration %d: Error: %.3e"%(i,error))
+        params=paramsNew
+        param_list.append(params)
+        error_list.append(error)
+        if i>=i_min:
+            if error_list[i]/error_list[i-i_min]>0.995:
+                break
+    #sys.exit(0)
+    print("Niter: %d"%len(error_list))
+    best_error=np.argmin(error_list)
+    return param_list[best_error],error_list[best_error]
 def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,num_orbitals=2,multi_bonds=0.03,maxiter=20,gradient=None,both=False):
     """
     Minimizes with min_max bonds as described in https://lmfit.github.io/lmfit-py/bounds.html
@@ -98,19 +131,27 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
     maxs=start_params+rangex+dp*abs(start_params)
     mmins=np.zeros_like(mins)
     mmaxs=np.zeros_like(maxs)
-    mmins[0::4]=0.05
+    mmins[0::4]=0.03
     mmaxs[0::4]=10
     mmins[1::4]=-30
     mmaxs[1::4]=30
-    mmins[2::4]=-50
-    mmaxs[2::4]=50
-    mmaxs[3::4]=grid_b-10
-    mmins[3::4]=grid_a+10
+    mmins[2::4]=-70
+    mmaxs[2::4]=70
+    mmaxs[3::4]=grid_b
+    mmins[3::4]=grid_a
     for i in range(len(mins)):
         if mins[i]<mmins[i]:
             mins[i]=mmins[i]
         if maxs[i]>mmaxs[i]:
             maxs[i]=mmaxs[i]
+    for i,sp in enumerate(start_params):
+        if abs(sp-mins[i])<1e-1:
+            pass
+            #start_params[i]=mins[i]+1e-2
+        if abs(sp-maxs[i])<1e-2:
+            pass
+            #start_params[i]=maxs[i]-1e-2
+
     transformed_params=transform_params(start_params)
     transformed_params=np.real(np.nan_to_num(transformed_params))
 
@@ -121,22 +162,24 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
         grad0=transformed_gradient(transformed_params)
     hess_inv0=np.diag(1/abs(grad0+1e-16*np.array(len(grad0))))
     if both is False:
-        sol=minimize(transformed_error,transformed_params,jac=transformed_gradient,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':3e-9})
+        sol=minimize(transformed_error,transformed_params,jac=transformed_gradient,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':1e-9})
     else:
-        sol=minimize(transform_error_and_gradient,transformed_params,jac=True,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':3e-9})
+        sol=minimize(transform_error_and_gradient,transformed_params,jac=True,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':1e-9})
     
     transformed_sol=sol.x
     end=time.time()
-    print("  REG: Time to optimize: %.3f seconds, niter : %d"%(end-start,sol.nit))
+    print("  REG: Time to optimize: %.4f seconds, niter : %d"%(end-start,sol.nit))
     return untransform_params(transformed_sol), sol.fun
 
-n=1001
-grid_a, grid_b = -60, 60
+n=int(1500)
+grid_a, grid_b = -210, 210
 lambd=1e-8 #Should be at most 1e-8, otherwise the <x(t)> will become wrongly oscillating
 #points, weights = tanh_sinh_quadrature(grid_a, grid_b, n)
-#points, weights = trapezoidal_quadrature(grid_a, grid_b, n)
-points,weights=gaussian_quadrature(grid_a, grid_b, n)
-
+points, weights = trapezoidal_quadrature(grid_a, grid_b, n)
+#points,weights=gaussian_quadrature(grid_a, grid_b, n)
+cosine_mask=cosine4_mask(points,grid_a+10,grid_b-10)
+plt.plot(points,cosine_mask)
+plt.show()
 sqrt_weights=np.sqrt(weights)
 R_list=[-1.15, 1.15]
 Z_list=[3,1]
@@ -171,7 +214,9 @@ gaussian_nonlincoeffs=list(gaussian_nonlincoeffs)
 #gaussian_nonlincoeffs=[]
 initlen=int(sys.argv[5])
 if initlen==20:
-    gaussian_nonlincoeffs=[array([ 1.73419,  0.11343, -1.27528,  0.20927]), array([ 0.58529, -0.10182,  0.7117 , -1.76771]), array([ 2.11929,  2.17511, -0.88734, -1.16533]), array([ 1.29685,  0.04576, -0.1202 , -0.17472]), array([ 1.62669,  0.90041, -0.96891, -0.1685 ]), array([ 0.6496 , -0.11852, -0.91406,  0.3228 ]), array([ 0.49845,  0.03352, -0.13568, -0.78859]), array([-0.54314,  0.17441,  0.32153, -0.12239]), array([1.90321, 1.51622, 0.24345, 1.22702]), array([1.3594 , 0.2869 , 0.15527, 0.46575]), array([ 1.5183 , -0.10313, -0.91311, -0.04304]), array([ 0.5269 , -0.08562,  0.34713, -1.45937]), array([ 0.75832,  0.35972, -0.7476 , -1.51205]), array([ 1.13422,  0.20182,  0.17226, -0.24265]), array([ 1.4865 ,  0.50411, -1.10446, -0.51211]), array([ 0.4632 , -0.04265, -0.92913,  0.11099]), array([ 0.41095, -0.02081, -0.06822, -0.23986]), array([-0.76367,  0.09731,  0.46446, -0.79924]), array([ 0.24858, -0.00625,  0.41402, -0.16231]), array([-0.27584,  0.00092,  0.32731,  0.08046])]
+    gaussian_nonlincoeffs=[array([1.62852040e+00, -1.99085421e+00, -1.28070443e+00, 2.75843219e-01]), array([3.37784970e-01, -2.34298030e-01, 8.96226542e-01, -5.52777247e-01]), array([2.24711248e+00, -3.45570715e-01, -2.62632646e-01, -1.19300927e+00]), array([5.92336566e-01, -6.19077383e-01, 8.21685194e-01, -2.67469331e-01]), array([1.52759963e+00, 6.43956526e-01, -1.52164785e+00, -8.04475147e-01]), array([5.48636134e-01, -2.52766365e-01, -9.03932804e-01, -1.91847153e-01]), array([3.54919119e-01, -5.80327741e-02, -4.33751898e-01, -3.24336393e-01]), array([-5.17908922e-01, 8.55155573e-02, 8.16647835e-01, 4.16672509e-01]), array([9.29852797e-01, -1.50717978e+00, -2.21150149e+00, 1.21004135e+00]), array([3.64646131e-01, -3.46218261e-01, 8.92035085e-02, 2.53860991e-01]), array([8.33235167e-01, 8.46731052e-01, -2.71802098e+00, -1.68544090e+00]), array([4.48036489e-01, -1.81494288e-01, 5.21196555e-01, -9.88132815e-01]), array([1.33103218e+00, -6.79031468e-01, -1.54764226e+00, -4.51143414e-02]), array([5.40735929e-01, -5.59620527e-01, 8.94127104e-01, -7.08536018e-01]), array([1.35240136e+00, 6.29765477e-01, -6.56158551e-01, -5.10202779e-01]), array([3.66225581e-01, -1.23996836e-01, -5.51452037e-01, 7.81454108e-02]), array([3.66126796e-01, -4.70428052e-02, 8.19945927e-02, 9.50195335e-02]), array([-4.82328993e-01, 3.41261099e-02, 1.92353707e+00, 8.08396453e-01]), array([2.42120797e-01, -6.35882995e-03, 4.22265724e-01, 4.32073584e-01]), array([-2.77733361e-01, -1.45592750e-02, 3.16684171e-01, 1.68298047e-01])]
+
+
 elif initlen==14:
     gaussian_nonlincoeffs=[array([-1.87441,  0.06869, -0.01303, -1.16114]), array([-1.13952,  0.1118 ,  0.00996, -1.14995]), array([-0.66852,  0.15975,  0.80609, -0.15962]), array([ 0.50658, -0.00505,  0.04311, -0.72989]), array([-0.53134, -0.10374,  0.11515, -0.70682]), array([-0.38064,  0.0098 ,  0.01496, -0.71111]), array([-0.44047, -0.08777, -0.27224,  0.2496 ]), array([-1.07369, -0.38298,  0.366  , -0.86346]), array([ 0.24886, -0.01687, -0.17751, -0.27855]), array([-0.77583,  0.30321, -1.61006, -1.38048]), array([-0.75606,  0.30882,  1.03027,  0.38283]), array([-1.3378 ,  0.10531,  0.15715, -0.36631]), array([ 0.3179 , -0.04544,  0.14781, -0.69072]), array([ 0.51938, -0.25733, -0.40263, -0.27263])]
 else:
@@ -185,6 +230,8 @@ else:
         pos_list=np.concatenate([np.linspace(-14,-4,n_extra//2),np.linspace(4,14,n_extra//2)])
     else:
         pos_list=np.concatenate([np.linspace(-3,-8,n_extra//2),np.linspace(3,8,n_extra//2)])
+    if n_extra>=6:
+        pos_list=np.concatenate([np.linspace(-15,-5,n_extra//2),np.linspace(5,15,n_extra//2)])
 for k in range(len(pos_list)):
     params=[1/sqrt(2),0,0,pos_list[k]]
     gaussian_nonlincoeffs.append(params)
@@ -380,7 +427,7 @@ def restricted_hartree_fock(S, onebody, twobody, num_electrons, max_iterations=1
         raise ValueError("RHF requires an even number of electrons.")
 
     # Step 1: Orthogonalize the basis (S^-1/2)
-    s_eigenvalues, s_eigenvectors = linalg.eigh(S+1e-10*np.eye(S.shape[0]))
+    s_eigenvalues, s_eigenvectors = linalg.eigh(S+lambd*np.eye(S.shape[0]))
     X = linalg.inv(linalg.sqrtm(S+lambd*np.eye(S.shape[0])))
     #print(s_eigenvalues)
 
@@ -497,9 +544,10 @@ def calculate_Fgauss(fockOrbitals,gaussian_nonlincoeffs,num_gauss,time_dependent
     return calculate_Fgauss_fast(np.array(fockOrbitals),num_gauss,time_dependent_potential,np.array(functions),np.array(minus_half_laplacians))
 weighted_e_e_grid = e_e_grid * weights[:, np.newaxis]
 
-@jit(nopython=True,fastmath=True,cache=False)
+#@jit(nopython=True,fastmath=True,cache=False)
 def calculate_Fgauss_fast(fockOrbitals,num_gauss,time_dependent_potential,functions,minus_half_laplacians):
     nFock=len(fockOrbitals)
+    #num_gauss=len(functions)
     Fgauss=np.zeros_like(functions)
     Fgauss+=minus_half_laplacians
     if time_dependent_potential is not None:
@@ -507,7 +555,7 @@ def calculate_Fgauss_fast(fockOrbitals,num_gauss,time_dependent_potential,functi
     else:
         potential_term = potential_grid
     Fgauss+=potential_term*functions
-    coulomb_terms=np.zeros((nFock,len(points)),dtype=np.complex128)
+    coulomb_terms=np.zeros((nFock,fockOrbitals.shape[1]),dtype=np.complex128)
     fock_orbitals_conj=np.conj(fockOrbitals)
     for j in range(nFock):
         coulomb_terms[j]=np.dot(fock_orbitals_conj[j] * fockOrbitals[j], weighted_e_e_grid)
@@ -558,7 +606,6 @@ for k in range(30):
     gaussian_nonlincoeffs=nonlin_params
 print(list(nonlin_params.reshape((num_gauss,4))))
 print(len(nonlin_params)//4)
-sys.exit(0)
 """
 def calculate_Fock_and_overlap(C,gaussian_nonlincoeffs,time_dependent_potential=None):
     gaussian_nonlincoeffs=gaussian_nonlincoeffs.reshape((num_gauss,4))
@@ -634,37 +681,13 @@ class Rothe_evaluator:
         Fock_times_Orbitals=calculate_Ftimesorbitals(self.old_lincoeff,fock_act_on_old_gauss)
         rhs=self.orbitals_that_represent_Fock-1j*self.dt/2*Fock_times_Orbitals
         return rhs
-    def calculate_rothe_error_nonlin_params(self,nonlin_params_unfrozen,n_gauss):
-        old_action=self.old_action *sqrt_weights
-        nonlin_params=np.concatenate((self.params_frozen,nonlin_params_unfrozen))
-        functions,minus_half_laplacians=setupfunctions(nonlin_params.reshape((num_gauss,4)),points)
-        fock_act_on_new_gauss=calculate_Fgauss_fast(np.array(self.orbitals_that_represent_Fock),
-                                                    num_gauss=self.nbasis,time_dependent_potential=self.pot,
-                                                    functions=np.array(functions),minus_half_laplacians=np.array(minus_half_laplacians))
-        X=functions+1j*self.dt/2*fock_act_on_new_gauss
-        new_lincoeff=np.empty((n_gauss,self.norbs),dtype=np.complex128)
-        X=X.T
-        X = X * sqrt_weights.reshape(-1, 1)
-
-        XTX = X.conj().T @ X
-        I=np.eye(XTX.shape[0])
-        rothe_error=0
-        for orbital_index in range(old_action.shape[0]):
-            Y=old_action[orbital_index]
-            XTy = X.conj().T @ Y
-            cvals=np.linalg.inv(XTX+ lambd * I)@XTy
-            new_lincoeff[:,orbital_index]=cvals
-            cX=X@cvals
-            rothe_error+=np.linalg.norm(Y-cX)**2
-        self.optimal_lincoeff=new_lincoeff
-        return rothe_error
-    def rothe_plus_gradient(self,nonlin_params_unfrozen,n_gauss):
+    def rothe_plus_gradient(self,nonlin_params_unfrozen,n_gauss,hessian=False):
         old_action=self.old_action *sqrt_weights
         gradient=np.zeros_like(nonlin_params_unfrozen)
         nonlin_params=np.concatenate((self.params_frozen,nonlin_params_unfrozen))
         functions,minus_half_laplacians,aderiv_funcs, bderiv_funcs, pderiv_funcs, qderiv_funcs, aderiv_kin_funcs, bderiv_kin_funcs, pderiv_kin_funcs, qderiv_kin_funcs=setupfunctionsandDerivs(nonlin_params.reshape((-1,4)),points)
         fock_act_on_new_gauss=calculate_Fgauss_fast(np.array(self.orbitals_that_represent_Fock),
-                                                    num_gauss=self.nbasis,time_dependent_potential=self.pot,
+                                                    num_gauss=len(functions),time_dependent_potential=self.pot,
                                                     functions=np.array(functions),minus_half_laplacians=np.array(minus_half_laplacians))
         function_derivs=[]
         kin_derivs=[]
@@ -676,6 +699,8 @@ class Rothe_evaluator:
         indices_random=np.random.choice(len(old_action[0]), len(old_action[0])//2, replace=False);multiplier=2
         indices_random=np.array(np.arange(len(old_action[0]))); multiplier=1
         X=functions+1j*self.dt/2*fock_act_on_new_gauss
+        n_gridpoints=X.shape[1]
+        n_params=len(nonlin_params_unfrozen)
         new_lincoeff=np.empty((n_gauss,self.norbs),dtype=np.complex128)
         old_action=old_action[:,indices_random]
         X=X.T
@@ -698,7 +723,7 @@ class Rothe_evaluator:
             rothe_error+=np.linalg.norm(zs[orbital_index])**2*multiplier
         self.optimal_lincoeff=new_lincoeff
         Fock_act_on_derivs=calculate_Fgauss_fast(np.array(self.orbitals_that_represent_Fock),
-                                                    num_gauss=self.nbasis,time_dependent_potential=self.pot,
+                                                    num_gauss=len(function_derivs),time_dependent_potential=self.pot,
                                                     functions=np.array(function_derivs),minus_half_laplacians=np.array(kin_derivs))
         
         Xders=function_derivs+1j*self.dt/2*Fock_act_on_derivs
@@ -706,6 +731,7 @@ class Rothe_evaluator:
         Xders=Xders.T
         Xders = Xders * sqrt_weights.reshape(-1, 1)
         Xders=Xders[indices_random,:]
+        gradvecs=np.zeros((n_params,n_gridpoints),dtype=np.complex128)
         for i in range(len(nonlin_params_unfrozen)):
             Xder=Xderc.copy()
             Xder[:,self.nfrozen+i//4]=Xders[:,i]
@@ -717,8 +743,17 @@ class Rothe_evaluator:
                 XTY=X_dag @ Y
                 matrix_der=-invmat@(X_dag@Xder+Xder_dag@X)@invmat
                 cder=matrix_der@XTY+invmat@XTYder
-                gradient[i]+=2*np.real(zs[orbital_index].conj().T@(-Xder@new_lincoeff[:,orbital_index]-X@cder))*multiplier
-        return rothe_error,gradient
+                gradvec=(-Xder@new_lincoeff[:,orbital_index]-X@cder)
+                gradient[i]+=2*np.real(zs[orbital_index].conj().T@gradvec)*multiplier
+                gradvecs[i]+=gradvec
+        
+        gradvecs=np.array(gradvecs)
+        if hessian:
+            hessian_val=np.real(2*gradvecs@np.conj(gradvecs).T)
+        if hessian:
+            return rothe_error,gradient,hessian_val
+        else:
+            return rothe_error,gradient
     def calculate_rothe_error(self,full_new_params,n_gauss):
         old_action=self.old_action
         #The first n_gauss*n_orbs parameters are the real parts of full_new_params
@@ -862,7 +897,72 @@ class Rothe_evaluator:
             newre=np.linalg.norm(weighted_errors)**2
             jac[i]=(newre-re)/eps
         return jac
+    def calculate_(self,nonlin_params_unfrozen,n_gauss):
+        jac=np.zeros_like(nonlin_params_unfrozen)
+        nonlin_params=np.concatenate((self.params_frozen,nonlin_params_unfrozen))
+        functions,minus_half_laplacians=setupfunctions(nonlin_params.reshape((num_gauss,4)),points)
+        self.orbitals_that_represent_Fock=make_orbitals(self.old_lincoeff,self.old_params)
+        X=functions
+        new_lincoeff=np.empty((n_gauss,self.norbs),dtype=np.complex128)
+        X=X.T
+        X = X * sqrt_weights.reshape(-1, 1)
+        XTX = X.conj().T @ X
+        I=np.eye(XTX.shape[0])
+        for orbital_index in range(old_action.shape[0]):
+            Y=old_action[orbital_index] * sqrt_weights
+            
 
+            XTy = X.conj().T @ Y
+            #cvals=np.linalg.inv(XTX + lambd * I)@XTy
+            cvals=np.linalg.inv(XTX+ lambd * I)@XTy
+            new_lincoeff[:,orbital_index]=cvals
+      
+        new_orbitals=make_orbitals(new_lincoeff,nonlin_params)
+        Fock_times_Orbitals=calculate_Ftimesorbitals(new_lincoeff,fock_act_on_new_gauss)
+
+        new_action=new_orbitals+1j*self.dt/2*Fock_times_Orbitals
+
+        orbital_errors=abs(new_action-old_action)
+        weighted_errors=np.einsum("ij,j->ij",orbital_errors,sqrt_weights)
+        re=np.linalg.norm(weighted_errors)**2
+        
+        for i in range(len(nonlin_params_unfrozen)):
+            new_params_copy=nonlin_params_unfrozen.copy()
+            new_params_copy[i]+=eps
+            new_functions=functions.copy()
+            params_to_update=new_params_copy[(i//4)*4:(i//4+1)*4]
+            all_nonlin_params_for_later=np.concatenate((self.params_frozen,new_params_copy))
+            new_function,new_mh_laplacian=setupfunctions(params_to_update,points)
+            fock_times_gauss_update=calculate_Fgauss_fast(np.array(self.orbitals_that_represent_Fock),
+                                                    num_gauss=1,time_dependent_potential=self.pot,
+                                                    functions=np.array(new_function),minus_half_laplacians=np.array(new_mh_laplacian))
+            fock_act_on_new_gauss=fock_act_on_new_gauss_old.copy()
+            fock_act_on_new_gauss[self.nfrozen+(i//4)]=fock_times_gauss_update
+            new_functions[self.nfrozen+(i//4)]=new_function
+            X=functions+1j*self.dt/2*fock_act_on_new_gauss
+            new_lincoeff=np.empty((n_gauss,self.norbs),dtype=np.complex128)
+            X=X.T
+            X = X * sqrt_weights.reshape(-1, 1)
+            XTX = X.conj().T @ X
+            
+            for orbital_index in range(old_action.shape[0]):
+                Y=old_action[orbital_index] * sqrt_weights
+                
+
+                XTy = X.conj().T @ Y
+               
+                cvals=np.linalg.inv(XTX+ lambd * I)@XTy
+                new_lincoeff[:,orbital_index]=cvals
+            new_orbitals=make_orbitals(new_lincoeff,all_nonlin_params_for_later)
+            Fock_times_Orbitals=calculate_Ftimesorbitals(new_lincoeff,fock_act_on_new_gauss)
+
+            new_action=new_orbitals+1j*self.dt/2*Fock_times_Orbitals
+
+            orbital_errors=abs(new_action-old_action)
+            weighted_errors=np.einsum("ij,j->ij",orbital_errors,sqrt_weights)
+            newre=np.linalg.norm(weighted_errors)**2
+            jac[i]=(newre-re)/eps
+        return jac
     def calculate_Rothe_error_fixed_basis(self,lin_params,n_gauss):
         new_params=self.old_params
         new_lincoeff=make_Cmat_from_truncated_params(lin_params,n_gauss,self.norbs)
@@ -916,29 +1016,16 @@ class Rothe_propagation:
         self.adjustment=None
         self.full_params=np.concatenate((lincoeffs_initial.flatten().real,lincoeffs_initial.flatten().imag,params_initial))
         self.t=t
-    def propagate_fixed_basis(self,t):
-        initial_lincoeffs=self.lincoeffs
-        initial_params=self.params
-        frozen_initial_params=initial_params[:80]
-        self.time_dependent_potential=self.pulse(t+self.dt/2)*points
-        F,S=calculate_Fock_and_overlap(initial_lincoeffs,initial_params,time_dependent_potential=self.time_dependent_potential)
-        Spf=S+1j*dt/2*F
-        Smf=S-1j*dt/2*F
-        C_linear_update=np.linalg.solve(Spf,Smf@initial_lincoeffs) #Initial guess for the linear coefficients in a basisj of the new Gaussians
-        C_flat=C_linear_update.flatten()
-        initial_full_new_params=np.concatenate((C_flat.real,C_flat.imag,initial_params[80:]))
     def propagate(self,t):
         initial_lincoeffs=self.lincoeffs
         initial_params=self.params
         self.time_dependent_potential=self.pulse(t+self.dt/2)*points
         initial_full_new_params=initial_params[4*self.nfrozen:]
         rothe_evaluator=Rothe_evaluator(initial_params,initial_lincoeffs,self.time_dependent_potential,dt,self.nfrozen)
-        initial_rothe_error=rothe_evaluator.calculate_rothe_error_nonlin_params(initial_full_new_params,self.nbasis)
+        initial_rothe_error,grad0=rothe_evaluator.rothe_plus_gradient(initial_full_new_params,self.nbasis)
         start_params=initial_params[4*self.nfrozen:]
-        maxiter=0
-        if t>=2:
-            maxiter=40
-        ls=np.linspace(0,1,3)
+        maxiter=100
+        ls=np.linspace(0,1,11)
         best=0
         if self.adjustment is not None:
             updated_res=[initial_rothe_error]
@@ -946,26 +1033,35 @@ class Rothe_propagation:
             for i in ls[1:]:
                 start_params_alt=initial_full_new_params+i*dx
 
-                updated_re=rothe_evaluator.calculate_rothe_error_nonlin_params(start_params_alt,self.nbasis)
+                updated_re,discard=rothe_evaluator.rothe_plus_gradient(initial_full_new_params,self.nbasis)
                 updated_res.append(updated_re)
             best=np.argmin(updated_res)
             start_params_alt=initial_full_new_params+best*dx
-        print("Old Rothe error, using change of %.1f: %e"%(ls[best],initial_rothe_error))
-        #sol=minimize(rothe_evaluator.calculate_rothe_error_nonlin_params,start_params,jac=rothe_evaluator.calculate_numerical_rothe_jacobian_nonlin_params,args=(self.nbasis),method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':1e-7})
-        #solution=sol.x
-        #new_rothe_error=rothe_evaluator.calculate_rothe_error_nonlin_params(solution,self.nbasis)
-        if initial_rothe_error<1.6e-8:
-            maxiter=0
-        solution,new_rothe_error=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
-                                                    start_params=start_params,
-                                                    gradient=True,
-                                                    num_gauss=len(initial_lincoeffs),
-                                                    num_frozen=self.nfrozen,
-                                                    num_orbitals=2,
-                                                    multi_bonds=0,
-                                                    maxiter=maxiter,
-                                                    both=True)
-        
+            print("Old Rothe error, using change of %.1f: %e"%(ls[best],updated_res[best]))
+            start_params=start_params_alt
+        else:
+            print("Old Rothe error: %e"%initial_rothe_error)
+        optimize_untransformed=False
+        if optimize_untransformed:
+            hess_inv0=np.diag(1/abs(grad0+1e-16*np.array(len(grad0))))
+            sol=minimize(rothe_evaluator.rothe_plus_gradient,
+                         start_params,jac=True,args=(self.nbasis),
+                         method='BFGS',
+                         options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':1e-9})
+            solution=sol.x
+            print("Number of iterations: ",sol.nit)
+            new_rothe_error,newgrad=rothe_evaluator.rothe_plus_gradient(solution,self.nbasis)
+        else:
+            solution,new_rothe_error=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
+                                                        start_params=start_params,
+                                                        gradient=True,
+                                                        num_gauss=len(initial_lincoeffs),
+                                                        num_frozen=self.nfrozen,
+                                                        num_orbitals=2,
+                                                        multi_bonds=0,
+                                                        maxiter=maxiter,
+                                                        both=True)
+        #solution,new_rothe_error=minimize_hessian(rothe_evaluator.rothe_plus_gradient,start_params,len(initial_lincoeffs))
         print("New Rothe error: %e"%new_rothe_error)
         C_flat=rothe_evaluator.optimal_lincoeff.flatten()
         #C_flat=initial_lincoeffs.flatten()
@@ -975,62 +1071,11 @@ class Rothe_propagation:
        
         self.params=np.concatenate((initial_params[:4*self.nfrozen],solution))
         self.lincoeffs=rothe_evaluator.optimal_lincoeff
-        print(np.reshape(solution,(n_extra,4)))
-    def propagate_linear(self,t):
-        initial_lincoeffs=self.lincoeffs
-        initial_params=self.params
-        self.time_dependent_potential=self.pulse(t+self.dt/2)*points
-        F,S=calculate_Fock_and_overlap(initial_lincoeffs,initial_params,time_dependent_potential=self.time_dependent_potential)
-        Spf=S+1j*dt/2*F
-        Smf=S-1j*dt/2*F
-        C_linear_update=np.linalg.solve(Spf,Smf@initial_lincoeffs) #Initial guess for the linear coefficients in a basisj of the new Gaussians
-        C_flat=C_linear_update.flatten()
-        #C_flat=initial_lincoeffs.flatten()
-        initial_full_new_params=np.concatenate((C_flat.real,C_flat.imag))
-        rothe_evaluator=Rothe_evaluator(initial_params,initial_lincoeffs,self.time_dependent_potential,dt)
-        dg=1e-8
-        #sol=minimize(rothe_evaluator.calculate_Rothe_error_fixed_basis,
-        #               initial_full_new_params,args=(num_gauss,),method='BFGS',options={'maxiter':10, "hess_inv0": hess_inv0})
-        solution=initial_full_new_params
-        new_rothe_error=rothe_evaluator.calculate_Rothe_error_fixed_basis(initial_full_new_params,num_gauss)
-        print("New Rothe error: ",new_rothe_error)
-        new_lincoeff=make_Cmat_from_truncated_params(initial_full_new_params,num_gauss,self.norbs)
-        self.lincoeffs=new_lincoeff
-    def propagate_basis(self,t):
-        initial_lincoeffs=self.lincoeffs
-        self.time_dependent_potential=self.pulse(t+self.dt/2)*points
-        if self.functions is None:
-                self.functions,self.minus_half_laplacians=setupfunctions(self.params.reshape((num_gauss,4)),points)
-                self.twobody_integrals=calculate_twobody_integrals_numba(np.ascontiguousarray(self.functions), e_e_grid, weights, num_gauss)
-        # Compute Fock and overlap matrices
-        F, S = calculate_Fock_and_overlap_from_functions(self.lincoeffs, 
-                                                         self.functions,self.minus_half_laplacians,
-                                                         self.twobody_integrals, self.time_dependent_potential)
-
-        #F,S=calculate_Fock_and_overlap(initial_lincoeffs,initial_params,time_dependent_potential=self.time_dependent_potential)
-        Spf=S+1j*dt/2*F
-        Smf=S-1j*dt/2*F
-        C_linear_update=np.linalg.solve(Spf,Smf@initial_lincoeffs) #Initial guess for the linear coefficients in a basisj of the new Gaussians
-        C_flat=C_linear_update.flatten()
-        initial_full_new_params=np.concatenate((C_flat.real,C_flat.imag))
-        new_lincoeff=make_Cmat_from_truncated_params(initial_full_new_params,num_gauss,self.norbs)
-        self.lincoeffs=new_lincoeff
-
-    def propagate_nsteps_linear(self,nsteps):
-        x_expectations=[]
-        for i in range(nsteps):
-            self.propagate_linear(i*self.dt)
-            print("Step %d done"%i)
-            #F,S=calculate_Fock_and_overlap(self.lincoeffs,self.params,time_dependent_potential=self.time_dependent_potential)
-            x_expectation=calculate_x_expectation(self.lincoeffs,self.params)
-            x_expectations.append(x_expectation)
-            print("Time %.3f, <x>: %.6f"%(i*self.dt,x_expectation))
-            #self.plot_orbitals((i+1)*self.dt)
-        return x_expectations
+        print(np.reshape(solution,(-1,4)))
     def propagate_nsteps(self,Tmax):
         x_expectations=[]
         times=np.linspace(0,nsteps*self.dt,nsteps+1)
-        filename="Rothe_wavefunctions%.3f_%d_%d.npz"%(E0,initlen,num_gauss)
+        filename="Rothe_wavefunctions%.4f_%d_%d.npz"%(E0,initlen,num_gauss)
         x_expectation=calculate_x_expectation(self.lincoeffs,self.params)
         if self.t==0:
             #Delete the file fith filename if it exists
@@ -1046,28 +1091,16 @@ class Rothe_propagation:
             save_wave_function(filename, self.full_params, self.dt,x_expectation,self.t)
             x_expectation=calculate_x_expectation(self.lincoeffs,self.params)
             x_expectations.append(x_expectation)
-            print("Time %.3f, <x>: %.6f"%(self.t,x_expectation))
+            print("Time %.4f, <x>: %.6f"%(self.t,x_expectation))
             #self.plot_orbitals((i+1)*self.dt)
         return x_expectations
-    def propagate_nsteps_basis(self,nsteps):
-        x_expectations=[]
-        for i in range(nsteps):
-            self.propagate_basis(i*self.dt)
-            print("Step %d done"%i)
-            #F,S=calculate_Fock_and_overlap(self.lincoeffs,self.params,time_dependent_potential=self.time_dependent_potential)
-            x_expectation=calculate_x_expectation(self.lincoeffs,self.params)
-            x_expectations.append(x_expectation)
-            print("Time %.3f, <x>: %.6f"%(i*self.dt,x_expectation))
-            #self.plot_orbitals((i+1)*self.dt)
-        return x_expectations
-
     def plot_orbitals(self,t):
         plt.figure()
         orbitals=make_orbitals(self.lincoeffs,self.params)
         for i in range(self.norbs):
             plt.plot(points,np.abs(orbitals[i]),label="|Orbital %d|"%i)
         plt.legend()
-        plt.savefig("Oribtals_t=%.3f.png"%(t), dpi=200)
+        plt.savefig("Oribtals_t=%.4f.png"%(t), dpi=200)
         plt.close()
 
 
@@ -1087,7 +1120,11 @@ def laserfield(E0, omega, td):
 time_dependent_potential=0.1*points #I. e. 0.1*x - very strong field
 
 E,lincoeff_initial,epsilon=calculate_energy(gaussian_nonlincoeffs,return_all=True)
-E0 = float(sys.argv[2])  # Maximum field strength
+F_input = float(sys.argv[2])# Maximum field strength in 10^14 W/cm^2
+F0 =np.sqrt(F_input/(3.50944758*1e2))  # Maximum field strength
+
+E0 = F0  # Maximum field strength
+print("Field strength in atomic units: %.4f"%E0)
 omega = 0.06075  # Laser frequency
 t_c = 2 * np.pi / omega  # Optical cycle
 n_cycles = 3
@@ -1098,25 +1135,19 @@ nsteps=int(tfinal/dt)
 print(tfinal)
 t=np.linspace(0,tfinal,1000)
 fieldfunc=laserfield(E0, omega, td)
-#plt.plot(t, fieldfunc(t))
-#plt.show()
-#propagate_linear_basis(gaussian_nonlincoeffs,lincoeff_initial,fieldfunc,dt,points,int(tfinal/dt))
-#sys.exit(0)
-
-
 
 
 x_expectation_t0=calculate_x_expectation(lincoeff_initial,gaussian_nonlincoeffs)
 functions,minus_half_laplacians=setupfunctions(gaussian_nonlincoeffs.reshape((num_gauss,4)),points)
 
-Tmax=310
+Tmax=tfinal
 if typer=="linear":
     rothepropagator=Rothe_propagation(gaussian_nonlincoeffs,lincoeff_initial,pulse=fieldfunc,timestep=dt,points=points,nfrozen=initlen)
 
     x_expectations=rothepropagator.propagate_nsteps_linear(nsteps)
     x_expectations=[x_expectation_t0]+x_expectations
     plt.plot(np.linspace(0,nsteps*dt,nsteps+1),x_expectations)
-    np.savez("Rothe_linearbasis_%.3f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
+    np.savez("Rothe_linearbasis_%.4f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
     plt.show()
 elif typer=="basis":
     rothepropagator=Rothe_propagation(gaussian_nonlincoeffs,lincoeff_initial,pulse=fieldfunc,timestep=dt,points=points,nfrozen=initlen)
@@ -1124,11 +1155,11 @@ elif typer=="basis":
     x_expectations=rothepropagator.propagate_nsteps_basis(nsteps)
     x_expectations=[x_expectation_t0]+x_expectations
     plt.plot(np.linspace(0,nsteps*dt,nsteps+1),x_expectations)
-    np.savez("linearbasis_%.3f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
+    np.savez("linearbasis_%.4f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
     plt.show()
 elif typer=="nonlinear":
     
-    filename="Rothe_wavefunctions%.3f_%d_%d.npz"%(E0,initlen,num_gauss)
+    filename="Rothe_wavefunctions%.4f_%d_%d.npz"%(E0,initlen,num_gauss)
     try:
         np.load(filename)
         times=np.load(filename)["times"]
@@ -1158,5 +1189,5 @@ elif typer=="nonlinear":
     x_expectations=rothepropagator.propagate_nsteps(Tmax)
     x_expectations=[x_expectation_t0]+x_expectations
     plt.plot(np.linspace(0,nsteps*dt,nsteps+1),x_expectations)
-    np.savez("Rothe_%.3f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
+    np.savez("Rothe_%.4f_%d.npz"%(E0,num_gauss),t=np.linspace(0,nsteps*dt,nsteps+1),x=x_expectations)
     plt.show()
