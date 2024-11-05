@@ -1,3 +1,4 @@
+import scipy
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import numba
@@ -9,7 +10,8 @@ from scipy import linalg
 import time
 from numpy.polynomial.hermite import hermgauss
 
-
+import warnings
+warnings.filterwarnings("error", category=RuntimeWarning, message="invalid value encountered in arctanh")
 from scipy.optimize import minimize
 from numpy import array,sqrt, pi
 from numpy import exp
@@ -18,9 +20,8 @@ from numpy import cosh, tanh, arctanh
 from quadratures import *
 np.set_printoptions(linewidth=300, precision=6, suppress=True, formatter={'float': '{:0.8e}'.format})
 class ConvergedError(Exception):
-    def __init__(self, message):
-        self.message = message
-        super().__init__(self.message)
+    def __init__(self):
+        pass
 
 
 def Coulomb(x, Z, x_c=0.0, alpha=1.0):
@@ -119,12 +120,23 @@ def minimize_hessian(error_function,start_params,num_gauss):
     print("Niter: %d"%len(error_list))
     best_error=np.argmin(error_list)
     return param_list[best_error],error_list[best_error]
-def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,multi_bonds=0.1,gtol=1e-9,maxiter=20,gradient=None,both=False,lambda_grad0=1e-8):
+def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,multi_bonds=0.1,gtol=1e-9,maxiter=20,gradient=None,both=False,lambda_grad0=1e-8,hess_inv=None,scale="log"):
     """
     Minimizes with min_max bonds as described in https://lmfit.github.io/lmfit-py/bounds.html
     """
     def transform_params(untransformed_params):
-        return arctanh(2*(untransformed_params-mins)/(maxs-mins)-1)
+        try:
+            newparams=arctanh(2*(untransformed_params-mins)/(maxs-mins)-1)
+        except RuntimeWarning:
+            newparams=np.zeros_like(untransformed_params)
+            for i,param in enumerate(2*(untransformed_params-mins)/(maxs-mins)-1):
+                if param>1:
+                    newparams[i]=5
+                elif param<-1:
+                    newparams[i]=-5
+                else:
+                    newparams[i]=arctanh(param)
+        return newparams
         #return arcsin(2*(untransformed_params-mins)/(maxs-mins)-1)
     def untransform_params(transformed_params):
         return mins+(maxs-mins)/2*(1+tanh(transformed_params))
@@ -166,7 +178,8 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
         return error,grad
 
     dp=multi_bonds*np.ones(len(start_params)) #Percentage (times 100) how much the parameters are alowed to change compared to previous time step
-    range_nonlin=[0.05,0.05,0.05,0.05]*(num_gauss-num_frozen)
+    dp[0::4]/=2 #multi bonds for a is half of the other parameters as it is the most sensitive parameter
+    range_nonlin=[0.01,0.05,0.05,0.05]*(num_gauss-num_frozen)
     rangex=range_nonlin
     rangex=np.array(rangex)
     mins=start_params-rangex-dp*abs(start_params)
@@ -174,7 +187,7 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
     mmins=np.zeros_like(mins)
     mmaxs=np.zeros_like(maxs)
     mmins[0::4]=0.01
-    mmaxs[0::4]=3
+    mmaxs[0::4]=3.2
     mmins[1::4]=-10
     mmaxs[1::4]=10
     mmins[2::4]=-20
@@ -202,16 +215,57 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
         err0,grad0=transform_error_and_gradient(transformed_params)
     else:
         grad0=transformed_gradient(transformed_params)
-    hess_inv0=np.diag(1/abs(grad0+lambda_grad0*np.array(len(grad0))))
-    if both is False:
-        sol=minimize(transformed_error,transformed_params,jac=transformed_gradient,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol})
+    if hess_inv is None:
+        hess_inv0=np.diag(1/abs(grad0+lambda_grad0*np.array(len(grad0))))
     else:
-        sol=minimize(transform_error_and_gradient,transformed_params,jac=True,method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol})
+        hess_inv0=hess_inv
     
-    transformed_sol=sol.x
+    numiter=0
+    f_storage=[]
+    def callback_func(intermediate_result: scipy.optimize.OptimizeResult):
+        nonlocal numiter
+        nonlocal f_storage
+        nonlocal transformed_sol
+        nonlocal minval
+        transformed_sol=intermediate_result.x
+        fun=intermediate_result.fun
+        minval=fun
+        if scale=="log":
+            re=sqrt(np.exp(fun))
+        else:
+            re=sqrt(fun)
+        f_storage.append(re)
+        compareto=20
+        if  numiter>=30: #At least 30 iterations
+            if f_storage[-1]/f_storage[-compareto-1]>0.999 and f_storage[-1]/f_storage[-compareto-1]<1:
+                raise ConvergedError
+        numiter+=1
+
+    converged=False
+    try:
+        if both is False:
+            sol=minimize(transformed_error,transformed_params,jac=transformed_gradient,
+                        method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol},
+                        callback=callback_func)
+        else:
+            sol=minimize(transform_error_and_gradient,transformed_params,jac=True,
+                        method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol},
+                        callback=callback_func)
+        transformed_sol = sol.x
+        minval=sol.fun #Not really fun, I am lying here
+        numiter=sol.nit
+    except ConvergedError:
+        converged=True
+        """
+        This means that the callback function tells me that the function is not decreasing anymore.
+        The important values are updated in the callback function (self.transformed_sol and self.minval)
+        so that this "error" can safely be ignored.
+        """
+        pass
+
     end=time.time()
-    print("REG: Time to optimize: %.4f seconds, niter : %d/%d"%(end-start,sol.nit,maxiter))
-    return untransform_params(transformed_sol), sol.fun
+    print("REG: Time to optimize: %.4f seconds, niter : %d/%d. Converged: %s"%(end-start,numiter,maxiter,converged))
+    return untransform_params(transformed_sol), minval
 def calculate_potential(Z_list,R_list,alpha,points):
     V=Molecule1D(R_list,Z_list,alpha)(points)
     return V
@@ -796,6 +850,7 @@ class Rothe_propagation:
         rothe_evaluator=Rothe_evaluator(initial_params,initial_lincoeffs,self.time_dependent_potential,dt,self.nfrozen)
         initial_rothe_error,grad0=rothe_evaluator.rothe_plus_gradient(initial_full_new_params)
         start_params=initial_params[4*self.nfrozen:]
+        best_start_params=start_params.copy()
         ls=np.linspace(0,1,11)
         best=0
         if self.adjustment is not None:
@@ -808,6 +863,7 @@ class Rothe_propagation:
                 optimal_linparams.append(rothe_evaluator.optimal_lincoeff)
             best=np.argmin(updated_res)
             start_params=initial_full_new_params+ls[best]*dx
+            best_start_params=start_params.copy()
             initial_rothe_error=updated_res[best]
             optimal_linparam=optimal_linparams[best]
             print("Old Rothe error, using change of %.1f: %e"%(ls[best],initial_rothe_error))
@@ -818,13 +874,12 @@ class Rothe_propagation:
             gtol=1e-11;
         elif molecule=="LiH2":
             gtol=1e-9
-        scale="log"
         if scale=="log":
             optimization_function=rothe_evaluator.rothe_plus_gradient_logscale
             if molecule=="LiH":
                 gtol=5e-1
             elif molecule=="LiH2":
-                gtol=1e1
+                gtol=5e-2
         else:
             optimization_function=rothe_evaluator.rothe_plus_gradient
         if optimize_untransformed:
@@ -848,15 +903,15 @@ class Rothe_propagation:
                                                         maxiter=maxiter,
                                                         gtol=gtol,
                                                         both=True,
-                                                        lambda_grad0=self.lambda_grad0)
+                                                        lambda_grad0=self.lambda_grad0,
+                                                        scale=scale)
             new_lincoeff=rothe_evaluator.optimal_lincoeff
             if scale=="log":
                 new_rothe_error=np.exp(new_rothe_error)
             print("Rothe Error after optimization: %e using lambd=%.1e"%(new_rothe_error,self.lambda_grad0))
-        if new_rothe_error>1.001*initial_rothe_error and self.lambda_grad0<1e-6:
+        lambda_grad0=self.lambda_grad0
+        if new_rothe_error>1.001*initial_rothe_error:
             print("Error increased, starting from previous parameters")
-            #self.lambda_grad0*=2
-            start_params=initial_params[4*self.nfrozen:]
             solution,new_rothe_error=minimize_transformed_bonds(optimization_function,
                                                         start_params=start_params,
                                                         gradient=True,
@@ -865,10 +920,18 @@ class Rothe_propagation:
                                                         maxiter=maxiter,
                                                         gtol=gtol,
                                                         both=True,
-                                                        lambda_grad0=self.lambda_grad0)
+                                                        lambda_grad0=lambda_grad0,
+                                                        hess_inv=np.eye(len(start_params)),
+                                                        scale=scale)
             new_lincoeff=rothe_evaluator.optimal_lincoeff
             if scale=="log":
                 new_rothe_error=np.exp(new_rothe_error)
+            print("New old Rothe error: %e"%new_rothe_error)
+        if new_rothe_error>1.001*initial_rothe_error:
+            print("Error increased AGAIN, using initial parameters.")
+            solution=best_start_params
+            new_rothe_error,initial_gradient=rothe_evaluator.rothe_plus_gradient(solution)
+            new_lincoeff=rothe_evaluator.optimal_lincoeff
             print("New old Rothe error: %e"%new_rothe_error)
         self.last_rothe_error=sqrt(new_rothe_error)
         new_params=np.concatenate((initial_params[:4*self.nfrozen],solution))
@@ -889,7 +952,7 @@ class Rothe_propagation:
         self.params=new_params
         self.lincoeffs=new_lincoeff
         avals=self.params[4*self.nfrozen::4]
-        print("Avals min and max: %.1e, %.1e"%(np.min(avals),np.max(avals)))
+        print("Avals min and max: %.3e, %.3e"%(np.min(avals),np.max(avals)))
         print("Norms",self.norms)
     def propagate_nsteps(self,Tmax,maxiter):
         filename="Rothe_wavefunctions%.4f_%d_%d_%d_%s.npz"%(E0,initlen,num_gauss,maxiter,molecule)
@@ -945,8 +1008,10 @@ maxiter=int(sys.argv[4])
 start_time=float(sys.argv[5])
 molecule=sys.argv[6]
 freeze_start=sys.argv[7]
+scale=sys.argv[8]
+
 try:
-    optimize_untransformed=bool(sys.argv[8])
+    optimize_untransformed=bool(sys.argv[9])
 except:
     optimize_untransformed=False
 if freeze_start=="freeze":
