@@ -171,8 +171,9 @@ elif molecule=="1Dtest":
     nonlin_params_22=[np.float64(1.72269096905547), np.float64(-0.4039874711048004), np.float64(0.31432067229389604), np.float64(0.10641145109711238), np.float64(0.27790331524948225), np.float64(-0.0021082885198705527), np.float64(0.6157293632162304), np.float64(-2.379394300694448), np.float64(0.1716997294015497), np.float64(-0.057340810809091675), np.float64(0.9632470482785852), np.float64(-3.9597368589297974), np.float64(0.33440147119615327), np.float64(-0.07764366423235174), np.float64(-2.445025060158573), np.float64(2.0555038261547396), np.float64(0.11521846771296237), np.float64(-0.055042251826370514), np.float64(-0.015975334804234066), np.float64(-6.1618520595994815), np.float64(0.0614820059725499), np.float64(-0.03932115157374086), np.float64(-0.5322763962647324), np.float64(-4.81842259148855), np.float64(0.3496548873241651), np.float64(-0.20721398758309206), np.float64(0.6830044909352548), np.float64(-3.9361465921228254), np.float64(0.09288197555653431), np.float64(-0.06120921311861555), np.float64(1.208812283269962), np.float64(15.033150839631809), np.float64(0.25077328280049405), np.float64(-0.25541708849526623), np.float64(-1.5027907580479707), np.float64(6.825773421405152), np.float64(0.11904257221525501), np.float64(-0.076646285118826), np.float64(-1.4523222637217759), np.float64(-13.343233925941048), np.float64(0.1653447465739587), np.float64(-0.09863241286530074), np.float64(0.41936229743907727), np.float64(5.004314919665155), np.float64(0.06605258463958673), np.float64(-0.0472945828761802), np.float64(-0.17329380795919444), np.float64(7.074490191859649), np.float64(0.8128615350747161), np.float64(-0.9657466604571832), np.float64(1.1201552029270334), np.float64(-1.1905785551749901), np.float64(0.16043996652949258), np.float64(-0.04694200154198329), np.float64(-0.5935574752603366), np.float64(-9.83675896574335), np.float64(0.3262825662776535), np.float64(-0.2797464604298052), np.float64(-1.1663108842074954), np.float64(6.889716202425451), np.float64(0.24735793017855154), np.float64(-0.11175294591063466), np.float64(0.3220867441363942), np.float64(-6.317279524404277), np.float64(0.40921050211365867), np.float64(0.008258121561925897), np.float64(0.9345470791294367), np.float64(5.742384866907973), np.float64(0.1290008038495776), np.float64(-0.02774439524129178), np.float64(0.8926904585007966), np.float64(11.96393653987769), np.float64(0.12650787635637498), np.float64(-0.04405854593916576), np.float64(-3.0695788266855066), np.float64(-35.97308174042858), np.float64(0.7513435674340722), np.float64(-0.46831328232589803), np.float64(2.0049865417180497), np.float64(-0.7209241560339793), np.float64(1.0256161797562362), np.float64(0.1389409758224315), np.float64(-1.1602141247454092), np.float64(-2.5794608071727363), np.float64(0.15299427484927244), np.float64(-0.13237607769372794), np.float64(-0.49092369301997485), np.float64(-16.095077357805376)]
     nonlin_params_25=[np.float64(1.7950949675539907), np.float64(-0.4383315846147311), np.float64(0.3081096232957383), np.float64(0.09165364769882463), np.float64(0.3681440974624641), np.float64(-0.008781382182082636), np.float64(0.33751337316864594), np.float64(-2.8685467628632253), np.float64(0.1596160266769486), np.float64(-0.0542493278905101), np.float64(1.0804832229990884), np.float64(-3.099562357946646), np.float64(0.33542818324821483), np.float64(-0.054230818785787824), np.float64(-2.65825473613072), np.float64(2.100791809138076), np.float64(0.108229518448867), np.float64(-0.053207839648957554), np.float64(-0.03464278830610468), np.float64(-6.436718742134949), np.float64(0.05699404884903556), np.float64(-0.03909697068225717), np.float64(-0.2579845876904663), np.float64(-1.090007458791877), np.float64(0.33104564226780664), np.float64(-0.20962533157995245), np.float64(0.6826183404001548), np.float64(-3.8972584769157974), np.float64(0.09787423174256078), np.float64(-0.0601525790805311), np.float64(1.5441878295358775), np.float64(17.664195514766977), np.float64(0.2979420634336059), np.float64(-0.26808385373614396), np.float64(-1.9594361657618036), np.float64(5.998581289001768), np.float64(0.1342208175388786), np.float64(-0.07223050503631959), np.float64(-1.7779295446722658), np.float64(-15.057210364636925), np.float64(0.15857792632198422), np.float64(-0.09451263702339191), np.float64(0.43845065186513965), np.float64(4.886323343892232), np.float64(0.06522358877071978), np.float64(-0.047479622724372346), np.float64(0.3941893457505471), np.float64(13.027680770714854), np.float64(0.9487987783027296), np.float64(-1.0263054696632792), np.float64(1.015478922387889), np.float64(-1.2212691855673408), np.float64(0.15968992760085518), np.float64(-0.051270808824738445), np.float64(-0.6420065146804371), np.float64(-10.406449209214223), np.float64(0.3494176632520127), np.float64(-0.2873796998194394), np.float64(-1.7401835932630159), np.float64(6.0743390174270635), np.float64(0.21790995709682984), np.float64(-0.1117312891423747), np.float64(0.3471546017808776), np.float64(-6.2397999672828925), np.float64(0.4679342845344908), np.float64(0.02501733738372467), np.float64(0.6627548279495507), np.float64(5.125315116410714), np.float64(0.10762710325632256), np.float64(-0.034608609714856554), np.float64(0.808117596911563), np.float64(12.220986902536326), np.float64(0.12478622258184341), np.float64(-0.042574122467449994), np.float64(-3.091837759742177), np.float64(-36.06555354020846), np.float64(0.8592233372797068), np.float64(-0.06768664506266865), np.float64(2.437679237089399), np.float64(-0.08414563418177169), np.float64(1.1018896051416776), np.float64(-0.11000421754754273), np.float64(-0.700808124627726), np.float64(-2.1627876317648855), np.float64(0.11234789025545927), np.float64(-0.11377297550695183), np.float64(-0.06603444409819942), np.float64(-14.197876603342953), np.float64(0.042317120077428785), np.float64(-0.020793555917739195), np.float64(2.8343164464180344), np.float64(27.63711911576108), np.float64(0.18347047390413626), np.float64(-0.08490298226514457), np.float64(2.233745087036359), np.float64(27.760709388204592), np.float64(0.14469275320025426), np.float64(-0.2568334097478134), np.float64(-1.6001946803015554), np.float64(10.372897703927663)]
 
-    nonlin_params=np.array(nonlin_params_22).flatten()
+    nonlin_params_list=[nonlin_params_1,nonlin_params_4,nonlin_params_7,nonlin_params_10,nonlin_params_13,nonlin_params_16,nonlin_params_19,nonlin_params_22,nonlin_params_25]
 lambd=1e-8
+"""
 for k in range(15):
     nonlin_params_copy=nonlin_params.copy()
     if k%5==0:
@@ -192,7 +193,7 @@ for k in range(15):
             err,initial_grad=error_wrapper(nonlin_paramsx)
             hess0=np.diag(1/np.abs(initial_grad+1e-16))
             res=minimize(error_wrapper,nonlin_paramsx,method='BFGS',jac=True,options={"hess_inv0":hess0,'maxiter':50})
-            err,initial_grad=error_wrapper(res.x)
+            err,initial_grad,lincoeffs=error_function(res.x)
             errs.append(err)
         if rangerino>0:
             best=np.argmin(errs)
@@ -212,7 +213,10 @@ for k in range(15):
     
     new_err,new_grad,optimal_lincoeffs=error_function(nonlin_params)
     print("Final error:",new_err)
+    print("Final params:")
     print(list(nonlin_params))
+    print("Final lincoeffs:")
+    print(list(optimal_lincoeffs))
 new_lin=optimal_lincoeffs
 
 gauss_orbitals=mmake_orbitals_from_gauss((nonlin_params).reshape((-1,4)),new_lin,grid)
@@ -221,3 +225,36 @@ for i in range(gauss_orbitals.shape[1]):
     plt.plot(grid,abs(orbitals[:,i]),label="Grid %d"%i)
 plt.legend()
 plt.show()
+"""
+lincoeffs=[]
+for nonlin_params in nonlin_params_list:
+    nonlin_params = np.array(nonlin_params)
+    rothe_error, gradient, new_lincoeff = error_function(nonlin_params)
+    lincoeffs.append(new_lincoeff.flatten())
+    i = len(nonlin_params) // 4
+    gauss_orbitals = mmake_orbitals_from_gauss(nonlin_params.reshape((-1, 4)), new_lincoeff, grid)
+    error = np.sqrt(rothe_error)
+    text = r"$||\Psi_{\mathrm{grid}} - \Psi_{\mathrm{gauss}}|| = %.1e$" % error
+    
+    plt.figure()
+    plt.plot(grid, abs(orbitals[:, 0]), label="Grid")
+    plt.plot(grid, abs(gauss_orbitals[:, 0]), label="%02d Gaussians" % i)
+    
+    legend = plt.legend(loc="upper right", fontsize=14)
+    
+    # Place text annotation in the upper right corner of the plot
+    plt.text(0.99, 0.8, text, transform=plt.gca().transAxes, 
+             fontsize=13, verticalalignment='top', horizontalalignment='right')    
+    plt.xlim(-40, 40)
+    plt.xlabel("x",fontsize=14)
+    plt.ylabel(r"$|\Psi(t=T_f)|$",fontsize=14)
+    plt.ylim(-0.01, 0.14)
+    plt.tight_layout()
+    plt.savefig("Gaussian_fit_%02d.pdf" % i)
+    plt.savefig("Gaussian_fit_%02d.png" % i)
+
+    plt.close()
+print("Lincoeffs:")
+print(lincoeffs)
+print("Nonlin params:")
+print(nonlin_params_list)

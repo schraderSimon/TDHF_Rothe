@@ -18,6 +18,7 @@ from numpy import exp
 from numpy import cosh, tanh, arctanh
 #from sympy import *
 from quadratures import *
+from optimizers import diis
 np.set_printoptions(linewidth=300, precision=6, suppress=True, formatter={'float': '{:0.8e}'.format})
 class ConvergedError(Exception):
     def __init__(self):
@@ -216,7 +217,9 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
     else:
         grad0=transformed_gradient(transformed_params)
     if hess_inv is None:
-        hess_inv0=np.diag(1/abs(grad0+lambda_grad0*np.array(len(grad0))))
+        hess_inv0=np.eye(len(grad0))/np.linalg.norm(grad0)*100
+        #hess_inv0=np.diag(1/abs(grad0+lambda_grad0*np.array(len(grad0))))
+
     else:
         hess_inv0=hess_inv
     
@@ -235,14 +238,17 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
         else:
             re=sqrt(fun)
         f_storage.append(re)
-        compareto=20
-        if  numiter>=30: #At least 30 iterations
-            if f_storage[-1]/f_storage[-compareto-1]>0.999 and f_storage[-1]/f_storage[-compareto-1]<1:
+        miniter=5
+        compareto_opt=20
+        compareto=compareto_opt if compareto_opt<miniter else miniter-1
+        if  numiter>=miniter: #At least 30 iterations
+            if f_storage[-1]/f_storage[-compareto]>0.9998 and f_storage[-1]/f_storage[-compareto]<1:
                 raise ConvergedError
         numiter+=1
 
     converged=False
     try:
+        
         if both is False:
             sol=minimize(transformed_error,transformed_params,jac=transformed_gradient,
                         method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol},
@@ -254,6 +260,9 @@ def minimize_transformed_bonds(error_function,start_params,num_gauss,num_frozen,
         transformed_sol = sol.x
         minval=sol.fun #Not really fun, I am lying here
         numiter=sol.nit
+        """
+        transformed_sol,numiter,minval=diis(transform_error_and_gradient,transformed_params)
+        """
     except ConvergedError:
         converged=True
         """
@@ -873,13 +882,13 @@ class Rothe_propagation:
         if molecule=="LiH":
             gtol=1e-11;
         elif molecule=="LiH2":
-            gtol=1e-9
+            gtol=1e-10
         if scale=="log":
             optimization_function=rothe_evaluator.rothe_plus_gradient_logscale
             if molecule=="LiH":
                 gtol=5e-1
             elif molecule=="LiH2":
-                gtol=5e-2
+                gtol=1e-3
         else:
             optimization_function=rothe_evaluator.rothe_plus_gradient
         if optimize_untransformed:
@@ -947,7 +956,7 @@ class Rothe_propagation:
         C_flat=new_lincoeff.flatten()
         linparams_new=np.concatenate((C_flat.real,C_flat.imag))
         self.full_params=np.concatenate((linparams_new,initial_params[:4*self.nfrozen],solution))
-        self.adjustment=solution-start_params
+        self.adjustment=solution-initial_full_new_params
        
         self.params=new_params
         self.lincoeffs=new_lincoeff
