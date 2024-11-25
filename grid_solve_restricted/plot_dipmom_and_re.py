@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import scipy
 import sys
+import re
 def compute_hhg_spectrum(time_points, dipole_moment, hann_window=False):
 
     dip = scipy.signal.detrend(dipole_moment, type="constant")
@@ -30,76 +31,83 @@ def compute_hhg_spectrum(time_points, dipole_moment, hann_window=False):
     )
 
     return omega, Px
-fieldstrengh=float(sys.argv[1])
-num_gauss_init=int(sys.argv[2])
-num_gauss=int(sys.argv[3])
-sys_arg_len=len(sys.argv)
-maxiters=np.array(sys.argv[4:-1],dtype=int)
-print(maxiters)
-molecule=sys.argv[-1]
-name_grid="/home/simonsch/projects/TDHF/grid-methods/examples/grid_solution_%s_%.3f.npz"%(molecule,fieldstrengh)
-orbitals_grid=np.load(name_grid)
-times_grid=orbitals_grid['times']
-dipmom_grid=orbitals_grid['xvals']
-plt.plot(times_grid,dipmom_grid,label="Grid")
+molecule=sys.argv[1]
 
+fieldstrengh=float(sys.argv[2])
+#num_gauss_init=int(sys.argv[3])
+#num_gauss=int(sys.argv[3])
+try:
+    name_grid="/home/simonsch/projects/TDHF/grid-methods/examples/grid_solution_%s_%.3f.npz"%(molecule,fieldstrengh)
+    orbitals_grid=np.load(name_grid)
+    times_grid=orbitals_grid['times']
+    dipmom_grid=orbitals_grid['xvals']
+except:
+    print("No grid solution found")
 
-name_gauss="Rothe_wavefunctions%.4f_%d_%d_0_%s.npz"%(fieldstrengh,int(sys.argv[2]),int(sys.argv[3]),molecule)
-gauss=np.load(name_gauss)
-times_gauss=gauss["times"]
-dipmom_gauss=gauss["xvals"]
-errors_gauss=gauss["rothe_errors"]
-plt.plot(times_gauss,dipmom_gauss,label="Linear Rothe")
 times_rothe_list=[]
 errors_rothe_list=[]
 dipmom_rothe_list=[]
-len_Rothe=len(errors_gauss)
-for maxiter in maxiters:
-    name_Rothe="Rothe_wavefunctions%.4f_%d_%d_%d_%s.npz"%(fieldstrengh,int(sys.argv[2]),int(sys.argv[3]),maxiter,molecule)
-    rothe=np.load(name_Rothe)
+directory = os.getcwd()
+pattern = r"Rothe_wavefunctions_[A-Za-z0-9]+_\d+\.\d+_\d+_(\d+)_(\d+)_(\d\.\d+e[+-]\d+)\.npz"
+files = [f for f in os.listdir(directory) if f.startswith("Rothe_wavefunctions_%s_%.4f_"%(molecule,fieldstrengh))]
+lenghts=[]
+maxiters=[]
+epsilons=[]
+initlengths=[]
+for i, file in enumerate(files):
+    match = re.match(pattern, file)
+    N_init = int(match.group(1))
+    maxiter = int(match.group(2))
+    epsilon = float(match.group(3))
+    initlengths.append(N_init)
+    epsilons.append(epsilon)
+    maxiters.append(maxiter)
+    rothe=np.load(file)
     times_Rothe=rothe["times"]
     dipmom_Rothe=rothe["xvals"]
     errors_Rothe=rothe["rothe_errors"]
+    lenghts.append(len(times_Rothe))
     errors_rothe_list.append(errors_Rothe)
     times_rothe_list.append(times_Rothe)
     dipmom_rothe_list.append(dipmom_Rothe)
-    plt.plot(times_Rothe,dipmom_Rothe,label="Full Rothe %d"%maxiter)
-    len_Rothe=min(len(errors_Rothe),len_Rothe)
-for i,maxiter in enumerate(maxiters):
-    print("Cumulative Rothe error %d:"%maxiter,np.sum(errors_rothe_list[i][:len_Rothe]))
+    
 
-print("Cumulative Rothe error (linear):",np.sum(errors_gauss[:len_Rothe]))
 
-plt.legend()
-plt.savefig("dipole_moment_%f_%d.pdf"%(fieldstrengh,num_gauss))
+minlen=min(lenghts)
+print("Time: %.2f"%times_rothe_list[i][:minlen][-1])
+ 
+for i,rothe_errors in enumerate(errors_rothe_list):
+    print("RE, timesteps=%3d,number_gaussians=%d, epsilon=%.3e: %f"%(maxiters[i],initlengths[i],epsilons[i],np.sum(errors_rothe_list[i][:minlen])))
 
-plt.show()
-plt.close()
+for i,file in enumerate(files):
+    # Match the pattern
+    match = re.match(pattern, file)
 
-plt.plot(times_gauss,errors_gauss,label="Linear Rothe")
-for i,maxiter in enumerate(maxiters):
-    times_Rothe=times_rothe_list[i]
-    errors_Rothe=errors_rothe_list[i]
-    plt.plot(times_Rothe,errors_Rothe,label="Full Rothe %d"%maxiters[i])
-
-plt.legend()
-plt.savefig("errors_%f_%d.pdf"%(fieldstrengh,num_gauss))
-plt.show()
+    N_init = int(match.group(1))
+    maxiter = int(match.group(2))
+    epsilon = float(match.group(3))
+    plt.plot(times_rothe_list[i],dipmom_rothe_list[i],label=r"$N_{init}=%d$,$it=%d$,$\varepsilon=%.3e$"%(N_init,maxiter,epsilon))
 try:
-    ltr=times_Rothe.shape[0]
+    plt.plot(times_grid,dipmom_grid,label="Grid")
 except:
-    sys.exit()
-grid_omega,grid_Px=compute_hhg_spectrum(times_grid[:ltr],dipmom_grid[:ltr])
-gauss_omega,gauss_Px=compute_hhg_spectrum(times_gauss[:ltr],dipmom_gauss[:ltr])
-for i,maxiter in enumerate(maxiters):
-    Rothe_omega,Rothe_Px=compute_hhg_spectrum(times_rothe_list[i],dipmom_rothe_list[i])
-    plt.plot(Rothe_omega/0.05,Rothe_Px,label="Rothe %d"%maxiters[i])
-plt.plot(grid_omega/0.05,grid_Px,label="Grid")
-plt.plot(gauss_omega/0.05,gauss_Px,label="Gauss")
-plt.xlim(0,10/0.05)
-plt.ylim(1e-8,10*max(grid_Px))
-plt.yscale("log")
+    print("No grid solution found")
+    
 plt.legend()
-plt.savefig("spectra%f_%d.pdf"%(fieldstrengh,num_gauss))
+plt.savefig("plots/dipole_moment_%s_%f.pdf"%(molecule,fieldstrengh))
+
 plt.show()
 plt.close()
+
+
+
+for i,file in enumerate(files):
+    match = re.match(pattern, file)
+
+    N_init = int(match.group(1))
+    maxiter = int(match.group(2))
+    epsilon = float(match.group(3))
+    plt.plot(times_rothe_list[i],errors_rothe_list[i],label=r"$N_{init}=%d$,$it=%d$,$\varepsilon=%.3e$,"%(N_init,maxiter,epsilon))
+
+plt.legend()
+plt.savefig("plots/errors_%s_%f.pdf"%(molecule,fieldstrengh))
+plt.show()
