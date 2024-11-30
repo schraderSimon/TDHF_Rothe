@@ -17,7 +17,7 @@ warnings.filterwarnings("error", category=RuntimeWarning, message="invalid value
 from scipy.optimize import minimize
 from numpy import array,sqrt, pi
 from numpy import exp
-from numpy import cosh, tanh, arctanh
+from numpy import cosh, tanh, arctanh, sin, cos, tan, arcsin, arccos
 #from sympy import *
 from quadratures import *
 from helper_functions import *
@@ -125,7 +125,7 @@ def save_wave_function(filename, wave_function, time_step,xval,time,rothe_error,
     number_of_basis_functions.append(ngauss)
     # Append new wave function at the current time step
     np.savez(filename, params=params, time_step=time_step,times=times,xvals=xvals,rothe_errors=rothe_errors,norms=norms_list,nbasis=number_of_basis_functions)
-    print("Time: %.2f, Cumul R.E.: %.2e \n"%(times[-1],np.sum((rothe_errors))))
+    print(" \nTime: %.2f, Cumul R.E.: %.2e"%(times[-1],np.sum((rothe_errors))))
 def cosine4_mask(x, a, b):
     a0=0.85*a
     b0=b*0.85
@@ -159,29 +159,39 @@ def minimize_hessian(error_function,start_params,num_gauss):
     print("Niter: %d"%len(error_list))
     best_error=np.argmin(error_list)
     return param_list[best_error],error_list[best_error]
-def minimize_transformed_bonds(error_function,start_params,multi_bonds=0.1,gtol=1e-9,maxiter=20,gradient=None,both=False,lambda_grad0=1e-8,hess_inv=None,scale="log",intervene=True):
+def minimize_transformed_bonds(error_function,start_params,multi_bonds=0.3,gtol=1e-9,maxiter=20,gradient=None,both=False,lambda_grad0=1e-8,hess_inv=None,scale="log",intervene=True):
     """
     Minimizes with min_max bonds as described in https://lmfit.github.io/lmfit-py/bounds.html
     """
     def transform_params(untransformed_params):
         newparams=np.zeros_like(untransformed_params)
+        """
         for i,param in enumerate(2*(untransformed_params-mins)/(maxs-mins)-1):
             if param>0.9999:
-                newparams[i]=5
+                newparams[i]=4
             elif param<-0.9999:
-                newparams[i]=-5
+                newparams[i]=-4
             else:
                 newparams[i]=arctanh(param)
+        """
+        for i,param in enumerate(2*(untransformed_params-mins)/(maxs-mins)-1):
+            if param>0.9999:
+                newparams[i]=1.5566
+            elif param<-0.9999:
+                newparams[i]=-1.5566
+            else:
+                newparams[i]=arcsin(param)
         return newparams
-        #return arcsin(2*(untransformed_params-mins)/(maxs-mins)-1)
     def untransform_params(transformed_params):
-        return mins+(maxs-mins)/2*(1+tanh(transformed_params))
-        #return mins+(maxs-mins)/2*(1+sin(transformed_params))
+        #return mins+(maxs-mins)/2*(1+tanh(transformed_params))
+        return mins+(maxs-mins)/2*(1+sin(transformed_params))
     def chainrule_params(transformed_params):
-        coshvals=cosh(transformed_params)
-        returnval= 0.5*(maxs-mins)/(coshvals**2)
-        return returnval
-        #return 0.5*(maxs-mins)*cos(transformed_params)
+        #coshvals=cosh(transformed_params)
+        #print("Biggest coshval: ",np.max(np.abs(coshvals)))
+        #sys.exit(0)
+        #returnval= 0.5*(maxs-mins)/(coshvals**2)
+        #return returnval
+        return 0.5*(maxs-mins)*cos(transformed_params)
 
     def transformed_error(transformed_params):
         error=error_function(untransform_params(transformed_params))
@@ -216,7 +226,7 @@ def minimize_transformed_bonds(error_function,start_params,multi_bonds=0.1,gtol=
 
     dp=multi_bonds*np.ones(len(start_params)) #Percentage (times 100) how much the parameters are alowed to change compared to previous time step
     dp[0::4]/=2 #multi bonds for a is half of the other parameters as it is the most sensitive parameter
-    range_nonlin=[0.01,0.1,0.3,0.3]*(len(start_params)//4)
+    range_nonlin=[0.02,0.05,0.3,0.3]*(len(start_params)//4)
     rangex=range_nonlin
     rangex=np.array(rangex)
     mins=start_params-rangex-dp*abs(start_params)
@@ -276,10 +286,10 @@ def minimize_transformed_bonds(error_function,start_params,multi_bonds=0.1,gtol=
             else:
                 re=sqrt(fun)
             f_storage.append(re)
-            miniter=20
+            miniter=10
             compareto_opt=20
             compareto=compareto_opt if compareto_opt<miniter else miniter-1
-            if  numiter>=miniter: #At least 30 iterations
+            if  numiter>=miniter: 
                 if f_storage[-1]/f_storage[-compareto]>0.999 and f_storage[-1]/f_storage[-compareto]<1:
                     raise ConvergedError
             numiter+=1
@@ -694,7 +704,7 @@ class Rothe_evaluator:
         """
         return functions,fock_act_on_frozen_gauss
     
-    def rothe_plus_gradient(self,nonlin_params_unfrozen,hessian=False):
+    def rothe_plus_gradient(self,nonlin_params_unfrozen,hessian=False,printing=False):
         old_action=self.old_action *sqrt_weights
         gradient=np.zeros_like(nonlin_params_unfrozen)
         nonlin_params=np.concatenate((self.params_frozen,nonlin_params_unfrozen))
@@ -974,9 +984,10 @@ class Rothe_propagation:
         self.time_dependent_potential=self.pulse(t+self.dt/2)*points
         initial_full_new_params=initial_params[4*self.nfrozen:]
         rothe_evaluator=Rothe_evaluator(initial_params,initial_lincoeffs,self.time_dependent_potential,dt,self.nfrozen)
-        initial_rothe_error,grad0=rothe_evaluator.rothe_plus_gradient(initial_full_new_params)
+        initial_rothe_error,grad0=rothe_evaluator.rothe_plus_gradient(initial_full_new_params,printing=True)
+        print("Initial Rothe error: %e"%initial_rothe_error)
+        #sys.exit(0)
         start_params=initial_params[4*self.nfrozen:]
-        best_start_params=start_params.copy()
         ls=np.linspace(0,1,11)
         ls=[0,0.5,0.9,1,1.1]
         best=0
@@ -1011,7 +1022,6 @@ class Rothe_propagation:
                 optimal_linparams.append(rothe_evaluator.optimal_lincoeff)
             best=np.argmin(updated_res)
             start_params=initial_full_new_params+ls[best]*dx
-            best_start_params=start_params.copy()
             initial_rothe_error=updated_res[best]
             optimal_linparam=optimal_linparams[best]
             print("Old Rothe error, using change of %.1f: %e"%(ls[best],initial_rothe_error))
@@ -1111,12 +1121,13 @@ class Rothe_propagation:
         #After opatimization: Make sure orbitals are orthonormal, and apply mask
         new_lincoeff=rothe_evaluator.orthonormalize_orbitals(new_params,new_lincoeff,self.norms)
         new_params,new_lincoeff,self.norms=apply_mask(new_params,new_lincoeff,self.nbasis,self.nfrozen)
+        solution=new_params[4*self.nfrozen:]
         #Reorthogonalize the orbitals, but nor reorthonormalize
         new_lincoeff=rothe_evaluator.orthonormalize_orbitals(new_params,new_lincoeff,self.norms)
 
         C_flat=new_lincoeff.flatten()
         linparams_new=np.concatenate((C_flat.real,C_flat.imag))
-        self.full_params=np.concatenate((linparams_new,initial_params[:4*self.nfrozen],solution))
+        self.full_params=np.concatenate((linparams_new,new_params))
         try:
             self.adjustment=solution-initial_full_new_params
         except ValueError:
@@ -1195,7 +1206,7 @@ else:
 
 inner_grid=17
 if F_input==1:
-    grid_b=150
+    grid_b=100
 elif F_input==4:
     grid_b=150
 elif F_input==8:
@@ -1315,12 +1326,14 @@ try:
     time_step=np.load(filename)["time_step"]
     rothe_errors=np.load(filename)["rothe_errors"]
     norms=np.load(filename)["norms"]
+
     nbasis=np.load(filename)["nbasis"]
     np.savez(filename, params=params[:closest_index+1], time_step=time_step,times=times[:closest_index+1],
              xvals=xvals[:closest_index+1],rothe_errors=rothe_errors[:closest_index+1],
              norms=norms[:closest_index+1],nbasis=nbasis[:closest_index+1])
     ngauss=nbasis[closest_index]
     norms_initial=norms[closest_index]
+
     ngauss_wrong=len(params[closest_index])//(4+norbs*2)
     lincoeff_initial_real=params[closest_index][:ngauss*norbs]#.reshape((ngauss,norbs))
     lincoeff_initial_complex=params[closest_index][ngauss_wrong*norbs:(ngauss+ngauss_wrong)*norbs]#.reshape((ngauss,norbs))
@@ -1342,6 +1355,7 @@ except FileNotFoundError:
     tmax=0
     norms_initial=np.ones(norbs)
     gaussian_nonlincoeffs_prev=None
+
 rothepropagator=Rothe_propagation(gaussian_nonlincoeffs,lincoeff_initial,pulse=fieldfunc,
                                 timestep=dt,points=points,nfrozen=nfrozen,t=tmax,norms=norms_initial,params_previous=gaussian_nonlincoeffs_prev)
 

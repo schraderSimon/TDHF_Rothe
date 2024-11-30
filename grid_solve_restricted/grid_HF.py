@@ -205,18 +205,18 @@ if __name__ == "__main__":
     R_list=[-1.15, 1.15]
     Z_list=[3,1]
     alpha=0.5
-    gridsize = 80
-    num_gridpoints = 800
+    gridsize = 15
+    num_gridpoints = 400
     
     S=solver(gridsize,num_gridpoints,Z_list,R_list,alpha,nelec=sum(Z_list))
     orbs=S.C_init[:,:S.norb]
 
-    plt.plot(S.grid,(orbs[:,0]),label="Orbital 1")
-    plt.plot(S.grid,(orbs[:,1]),label="Orbital 2")
+    #plt.plot(S.grid,(orbs[:,0]),label="Orbital 1")
+    #plt.plot(S.grid,(orbs[:,1]),label="Orbital 2")
     S.SCF()
     orbs=S.C[:,:S.norb]
     print(orbs.shape)
-    plt.plot(S.grid,(orbs[:,0]),label="Orbital 1 converged")
+    plt.plot(S.grid,abs(orbs[:,0]),label="Orbital 1 converged")
     plt.plot(S.grid,(orbs[:,1]),label="Orbital 2 converged")
     filename="orbitals_converged"
     np.savez(filename,grid=S.grid,orbitals=orbs)
