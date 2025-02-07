@@ -1,0 +1,21 @@
+#!/bin/bash
+sbatch jobscript_HF_m_1.0_0.1.sh
+sbatch jobscript_HF_m_1.0_0.5.sh
+sbatch jobscript_HF_m_1.0_1.sh
+sbatch jobscript_DFT_m_1.0_0.1.sh
+sbatch jobscript_DFT_m_1.0_0.5.sh
+sbatch jobscript_DFT_m_1.0_1.sh
+sbatch jobscript_HF_m_4.0_1.sh
+sbatch jobscript_HF_m_4.0_5.sh
+sbatch jobscript_HF_m_4.0_10.sh
+sbatch jobscript_DFT_m_4.0_1.sh
+sbatch jobscript_DFT_m_4.0_5.sh
+sbatch jobscript_DFT_m_4.0_10.sh
+sbatch jobscript_HF_d_1.0_0.5.sh
+sbatch jobscript_HF_d_1.0_5.sh
+sbatch jobscript_DFT_d_1.0_0.5.sh
+sbatch jobscript_DFT_d_1.0_5.sh
+sbatch jobscript_HF_d_4.0_5.sh
+sbatch jobscript_HF_d_4.0_50.sh
+sbatch jobscript_DFT_d_4.0_5.sh
+sbatch jobscript_DFT_d_4.0_50.sh

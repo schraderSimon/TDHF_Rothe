@@ -227,8 +227,8 @@ def make_minimizer_function(avals_min,avals_max,bvals_min,bvals_max,pvals_min,pv
             #coshvals=cosh(transformed_params)
             #print("Biggest coshval: ",np.max(np.abs(coshvals)))
             #sys.exit(0)
-            #returnval= 0.5*(maxs-mins)/(coshvals**2)
-            #return returnval
+            
+            #return returnval= 0.5*(maxs-mins)/(coshvals**2)
             return 0.5*(maxs-mins)*cos(transformed_params)
 
         def transformed_error(transformed_params):
@@ -311,7 +311,7 @@ def make_minimizer_function(avals_min,avals_max,bvals_min,bvals_max,pvals_min,pv
             grad0=transformed_gradient(transformed_params)
         if hess_inv is None:
             #hess_inv0=np.eye(len(grad0))/np.linalg.norm(grad0)
-            hess_inv0=np.diag(1/abs(grad0+lambda_grad0*np.array(len(grad0))))
+            hess_inv0=np.diag(1/(abs(grad0)+lambda_grad0))
 
         else:
             hess_inv0=hess_inv
@@ -338,10 +338,9 @@ def make_minimizer_function(avals_min,avals_max,bvals_min,bvals_max,pvals_min,pv
             re=sqrt(fun)
             f_storage.append(re)
             miniter=20
-            compareto_opt=20
-            compareto=compareto_opt if compareto_opt<miniter else miniter-1
+            compareto=miniter-1
             if  numiter>=miniter and intervene: 
-                if f_storage[-1]/f_storage[-compareto]>0.995 and f_storage[-1]/f_storage[-compareto]<1:
+                if f_storage[-1]/f_storage[-compareto]>0.999 and f_storage[-1]/f_storage[-compareto]<1:
                     raise ConvergedError
             numiter+=1
 
@@ -354,7 +353,7 @@ def make_minimizer_function(avals_min,avals_max,bvals_min,bvals_max,pvals_min,pv
                             callback=callback_func)
             else:
                 sol=minimize(f_scaled,x_scaled,jac=True,
-                            method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol},
+                            method='BFGS',options={"hess_inv0":hess_inv0,'maxiter':maxiter,'gtol':gtol,"c1":1e-4,"c2":0.9},
                             callback=callback_func)
             transformed_sol = sol.x
             minval=sol.fun #Not really fun, I am lying here
