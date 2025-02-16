@@ -832,7 +832,7 @@ class Rothe_propagation:
             self.last_added_t=self.t
             
             small_i=np.argmin(errors_oneremoved)
-            if errors_oneremoved[small_i]<new_rothe_error*1.4:
+            if errors_oneremoved[small_i]<new_rothe_error*1.1:
                 print("Removing Gaussian %d with error %.3e"%(small_i,sqrt(errors_oneremoved[small_i])))
                 solution_removed=np.delete(solution,[small_i*4,small_i*4+1,small_i*4+2,small_i*4+3])
                 self.nbasis-=1
@@ -1180,7 +1180,7 @@ try:
 except FileNotFoundError:
     tmax=0
     norms_initial=np.ones(norbs)
-gaussian_nonlincoeffs_prev=None
+#gaussian_nonlincoeffs_prev=None
 
 if tmax==0 and method=="DFT":
 

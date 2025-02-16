@@ -7,7 +7,8 @@ import sys
 import re
 
 def compute_hhg_spectrum(time_points, dipole_moment, hann_window=False):
-    dip = scipy.signal.detrend(dipole_moment, type="constant")
+    dip=np.array(dipole_moment)-dipole_moment[0]
+    #dip = scipy.signal.detrend(dipole_moment, type="constant")
     if hann_window:
         Px = (
             np.abs(
