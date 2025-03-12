@@ -175,22 +175,25 @@ def gauss_and_minushalflaplacian_and_derivs(x,a,b,p,q):
     bredde = asq + 1j*b
     qminx = q - x
     jp=1j*p
+    qsq=q**2
     br_qminx=bredde*qminx
     gaussval =sqrt(abs(a)/sqrt(pi/2))* exp(-qminx * (jp + br_qminx))
     minus_half_laplace = (bredde - 0.5 * (jp + 2*br_qminx)**2) * gaussval
-    
-    aderiv=(-2*a*q**2 + 4*a*q*x - 2*a*x**2 + 1/(2*a))*gaussval
-    bderiv=1j*(-q**2 + 2.0*q*x - x**2)*gaussval
+    xsq=x**2
+    aderiv=(-2*a*qsq + 4*a*q*x - 2*a*xsq + 1/(2*a))*gaussval
+    bderiv=1j*(-qsq + 2.0*q*x - xsq)*gaussval
     pderiv=1j*(-q + x)*gaussval
     qderiv=(-2.0*asq*q + 2.0*asq*x - 2j*b*q + 2j*b*x - jp)*gaussval
     tempval=0.5*jp + br_qminx
     tempvalsq=tempval**2
     brmttvsq=bredde - 2*tempvalsq
     b_inv=1/brmttvsq
-    aderiv_kin=minus_half_laplace*(-asq*(qminx**2*(4*asq + 4*1j*b - 8*tempvalsq) + 16*qminx*tempval - 4) + brmttvsq)/(2*a)*b_inv
-    bderiv_kin=minus_half_laplace*1j*(-qminx**2*brmttvsq - 4*qminx*tempval + 1)*b_inv
+    qminxsq=qminx**2
+    qt=qminx*tempval
+    aderiv_kin=minus_half_laplace*(-asq*(qminxsq*(4*bredde - 8*tempvalsq) + 16*qt - 4) + brmttvsq)/(2*a)*b_inv
+    bderiv_kin=minus_half_laplace*1j*(-qminxsq*brmttvsq - 4*qt + 1)*b_inv
     pderiv_kin=minus_half_laplace*1j*(-jp - 2.0*br_qminx - qminx*brmttvsq)*b_inv
-    qderiv_kin=minus_half_laplace*(-2.0*(2*asq + 2j*b)*tempval - (jp + 2*br_qminx)*brmttvsq)*b_inv
+    qderiv_kin=minus_half_laplace*(-4.0*bredde*tempval - (jp + 2*br_qminx)*brmttvsq)*b_inv
     return (gaussval, minus_half_laplace, aderiv, bderiv, pderiv, qderiv, 
             aderiv_kin, bderiv_kin, pderiv_kin, qderiv_kin)
 
