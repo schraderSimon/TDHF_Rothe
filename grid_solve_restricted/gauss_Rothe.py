@@ -337,7 +337,8 @@ class Rothe_evaluator:
 
         self.old_action=self.calculate_Adagger_oldOrbitals() #Essentially, the thing we want to approximate with the new orbitals
         self.f_frozen,self.fock_act_on_frozen_gauss=self.calculate_frozen_orbital_stuff()
-        
+        self.reshaped_sqrt_weights=self.sqrt_weights.reshape(-1, 1)
+        self.new_action=None
     def calculate_Adagger_oldOrbitals(self):
         fock_act_on_old_gauss=self.orbital_operator_slow(self.orbitals_that_represent_Fock,self.old_params,num_gauss=self.nbasis,time_dependent_potential=self.pot) #Act with the OLD Fock operator on the OLD Gaussians
         Fock_times_Orbitals=calculate_Ftimesorbitals(self.old_lincoeff,fock_act_on_old_gauss)
@@ -350,11 +351,80 @@ class Rothe_evaluator:
                                                     num_gauss=len(functions),time_dependent_potential=self.pot,
                                                     functions=np.array(functions),minus_half_laplacians=np.array(minus_half_laplacians))
         return functions,fock_act_on_frozen_gauss
-    
+    def setupOneGaussianOptimization(self,nonlin_params_unfrozen):
+        functions_u,minus_half_laplacians_u,_, _, _, _, _, _, _, _=setupfunctionsandDerivs(nonlin_params_unfrozen.reshape((-1,4)),self.points)
+        fock_act_on_new_gauss=self.orbital_operator(np.array(self.orbitals_that_represent_Fock),
+                                                    num_gauss=len(functions_u),time_dependent_potential=self.pot,
+                                                    functions=np.array(functions_u),minus_half_laplacians=np.array(minus_half_laplacians_u))
+        functions=np.concatenate((self.f_frozen,functions_u))
+        fock_act_on_functions=np.concatenate((self.fock_act_on_frozen_gauss,fock_act_on_new_gauss))
+        X=(functions+1j*self.dt/2*fock_act_on_functions).T
+        X = X *self.reshaped_sqrt_weights
+        self.new_action=X
+    def optimize_oneGaussian(self,nonlin_params_unfrozen,index,return_grad=True,err_threshold=0.95):
+        old_action=self.old_action *self.sqrt_weights
+        gradient=np.zeros(4)
+        functions_u,minus_half_laplacians_u,aderivs, bderivs, pderivs, qderivs, aderiv_kin_funcs, bderiv_kin_funcs, pderiv_kin_funcs, qderiv_kin_funcs=setupfunctionsandDerivs(nonlin_params_unfrozen,self.points)
+        fock_act_on_new_gauss=self.orbital_operator(np.array(self.orbitals_that_represent_Fock),
+                                                    num_gauss=len(functions_u),time_dependent_potential=self.pot,
+                                                    functions=np.array(functions_u),minus_half_laplacians=np.array(minus_half_laplacians_u))
+        X_i=functions_u+1j*self.dt/2*fock_act_on_new_gauss
+        X_i = X_i *self.sqrt_weights
+        if self.new_action is not None:
+            X=self.new_action
+        else:
+            raise ValueError("new_action is None. Please call setupOneGaussianOptimization first.")
+        X[:,index]=X_i[0,:]
+        threshold=1e-8
+        U,Sigma,Vdagger=np.linalg.svd(X,full_matrices=False)
+        Sigma_invvals=np.where(np.abs(Sigma) > threshold, 1.0 / Sigma, 0.0)
+        Sigma_inv=np.diag(Sigma_invvals)
+        full_pseudoinverse=Vdagger.conj().T@Sigma_inv@U.conj().T
+        
+        new_lincoeff = full_pseudoinverse @ old_action.T  # shape (M, N)
+        X_new = X @ new_lincoeff                           # shape (D, N)
+        zs = old_action - X_new.T                          # shape (N, D)
+        rothe_error = np.sum(np.linalg.norm(zs, axis=1)**2)
+
+        overlapmatrix=X.T.conj()@X
+        myslice=np.abs(overlapmatrix[index,:])
+        for elem in myslice:
+            if elem>err_threshold:
+                rothe_error+=1e-3*(elem**2-err_threshold**2)/(1-err_threshold**2)
+        if not return_grad:
+            return rothe_error
+        
+        self.optimal_lincoeff=new_lincoeff
+        function_derivs=np.array([aderivs[0],bderivs[0],pderivs[0],qderivs[0]])
+        kin_derivs=np.array([aderiv_kin_funcs[0],bderiv_kin_funcs[0],pderiv_kin_funcs[0],qderiv_kin_funcs[0]])
+
+        Fock_act_on_derivs=self.orbital_operator(np.array(self.orbitals_that_represent_Fock),
+                                                    num_gauss=len(function_derivs),time_dependent_potential=self.pot,
+                                                    functions=np.array(function_derivs),minus_half_laplacians=np.array(kin_derivs))
+        Xders=(function_derivs+1j*self.dt/2*Fock_act_on_derivs).T
+        
+        Xders = Xders *self.reshaped_sqrt_weights
+        tempmat=U@Sigma_inv@Vdagger
+        zsT=zs.T
+        for k in range(4):
+            #See https://geo-ant.github.io/blog/2020/variable-projection-part-1-fundamentals/
+            Xder_k=Xders[:,k]
+            col_index = self.nfrozen + k // 4
+            c_k=new_lincoeff[col_index,:]
+            Dkc_several = np.outer(Xder_k, c_k)
+            ak_several=Dkc_several-U@(U.conj().T@Dkc_several)
+            vector = Xder_k.conj() @ zsT  # or .T@ if you need exact shape details
+
+            # Outer product -> shape (N, norbs)
+            bk_several = np.outer(tempmat[:, col_index], vector)
+            gradvecs = -ak_several - bk_several  # Shape: (N, num_orbitals)
+            dot_products = np.sum(zs * gradvecs.conj().T, axis=1)  # Shape: (num_orbitals,)
+            gradient[k] += 2 * np.real(np.sum(dot_products))  # Sum over all orbitals
+        return rothe_error,gradient
     def rothe_plus_gradient(self,nonlin_params_unfrozen,printing=False,calculate_overlap=True,return_overlap=False):
         old_action=self.old_action *self.sqrt_weights
         gradient=np.zeros_like(nonlin_params_unfrozen)
-        functions_u,minus_half_laplacians_u,aderivs, bderivs, pderivs, qderivs, aderiv_kin_funcs, bderiv_kin_funcs, pderiv_kin_funcs, qderiv_kin_funcs=setupfunctionsandDerivs(nonlin_params_unfrozen.reshape((-1,4)),points)
+        functions_u,minus_half_laplacians_u,aderivs, bderivs, pderivs, qderivs, aderiv_kin_funcs, bderiv_kin_funcs, pderiv_kin_funcs, qderiv_kin_funcs=setupfunctionsandDerivs(nonlin_params_unfrozen.reshape((-1,4)),self.points)
         fock_act_on_new_gauss=self.orbital_operator(np.array(self.orbitals_that_represent_Fock),
                                                     num_gauss=len(functions_u),time_dependent_potential=self.pot,
                                                     functions=np.array(functions_u),minus_half_laplacians=np.array(minus_half_laplacians_u))
@@ -367,16 +437,12 @@ class Rothe_evaluator:
             kin_derivs+=[aderiv_kin_funcs[i],bderiv_kin_funcs[i],pderiv_kin_funcs[i],qderiv_kin_funcs[i]]
         function_derivs=np.array(function_derivs)
         kin_derivs=np.array(kin_derivs)
-        X=functions+1j*self.dt/2*fock_act_on_functions
-        new_lincoeff=np.empty((self.nbasis,self.norbs),dtype=np.complex128)
-        X=X.T
-        #Xderc=np.zeros_like(X)
-        X = X *self.sqrt_weights.reshape(-1, 1)
+        X=(functions+1j*self.dt/2*fock_act_on_functions).T
+        X = X *self.reshaped_sqrt_weights
 
         threshold=1e-7
-        #full_pseudoinverse=np.linalg.pinv(X)
         U,Sigma,Vdagger=np.linalg.svd(X,full_matrices=False)
-        Sigma_invvals=np.where(np.abs(Sigma) > threshold**2, 1.0 / Sigma, 0.0)
+        Sigma_invvals=np.where(np.abs(Sigma) > threshold, 1.0 / Sigma, 0.0)
         Sigma_inv=np.diag(Sigma_invvals)
         full_pseudoinverse=Vdagger.conj().T@Sigma_inv@U.conj().T
         
@@ -391,26 +457,28 @@ class Rothe_evaluator:
                                                     functions=np.array(function_derivs),minus_half_laplacians=np.array(kin_derivs))
         Xders=(function_derivs+1j*self.dt/2*Fock_act_on_derivs).T
         
-        Xders = Xders *self.sqrt_weights.reshape(-1, 1)
+        Xders = Xders *self.reshaped_sqrt_weights
         M=len(nonlin_params_unfrozen)
         tempmat=U@Sigma_inv@Vdagger
-        for orbital_index in range(old_action.shape[0]):
-            c=new_lincoeff[:,orbital_index]
-            r=zs[orbital_index]
-            for k in range(M):
-                #See https://geo-ant.github.io/blog/2020/variable-projection-part-1-fundamentals/
-                col_index = self.nfrozen + k // 4
-                Xder_k=Xders[:,k]
-                Dkc = Xder_k * c[col_index]
-                ak=Dkc-U@(U.conj().T@Dkc)
-                DkTconj_r = np.zeros_like(c)
-                DkTconj_r[col_index] = np.vdot(Xder_k, r)
-                bk=tempmat@DkTconj_r
-                gradvec=-ak-bk
-                gradient[k]+=2*np.real(np.vdot(r,gradvec))
-        
+        zsT=zs.T
+        for k in range(M):
+            #See https://geo-ant.github.io/blog/2020/variable-projection-part-1-fundamentals/
+            Xder_k=Xders[:,k]
+            col_index = self.nfrozen + k // 4
+            c_k=new_lincoeff[col_index,:]
+            Dkc_several = np.outer(Xder_k, c_k)
+            ak_several=Dkc_several-U@(U.conj().T@Dkc_several)
+            vector = Xder_k.conj() @ zsT  # or .T@ if you need exact shape details
+
+            # Outer product -> shape (N, norbs)
+            bk_several = np.outer(tempmat[:, col_index], vector)
+            gradvecs = -ak_several - bk_several  # Shape: (N, num_orbitals)
+            dot_products = np.sum(zs * gradvecs.conj().T, axis=1)  # Shape: (num_orbitals,)
+            gradient[k] += 2 * np.real(np.sum(dot_products))  # Sum over all orbitals        
+
         if calculate_overlap or return_overlap:
             overlapmatrix=calculate_overlapmatrix(functions,weights)
+            
             overlapmatrix_eigvals=np.linalg.eigvalsh(overlapmatrix)
             ovlp_mindiag=overlapmatrix-np.eye(overlapmatrix.shape[0])
             ovlp_mindiag_unfrozen=ovlp_mindiag[self.nfrozen:,self.nfrozen:]
@@ -421,6 +489,7 @@ class Rothe_evaluator:
             max_indices=tuple(max_indices)
             smallest_eigvals=np.array2string(overlapmatrix_eigvals[:3], formatter={'float_kind': lambda x: "%.2e" % x})
             if printing:
+                #print('\n'.join([' '.join([f'{elem:.1e}' for elem in row]) for row in np.abs(overlapmatrix)]))
                 print("Smallest Overlap matrix eigenvalues",smallest_eigvals,
                         "Biggest Overlap matrix element", np.max(abs(ovlp_mindiag_unfrozen)), "at",max_indices)
         if return_overlap:
@@ -438,7 +507,7 @@ class Rothe_evaluator:
         new_lincoeff=np.empty((self.nbasis,self.norbs),dtype=np.complex128)
         old_action=old_action
         X=X.T
-        X = X *self.sqrt_weights.reshape(-1, 1)
+        X = X *self.reshaped_sqrt_weights
         
         X_dag=X.conj().T
         XTX =X_dag @ X
@@ -473,11 +542,12 @@ class Rothe_evaluator:
             error,gradient=self.rothe_plus_gradient(all_nonlin_params,False)
             return error,gradient[-4:]
         return opt_func
+    
     def orthonormalize_orbitals(self,nonlin_params,old_lincoeff,orbital_norms=None):
         old_action=self.old_action *self.sqrt_weights
         functions,_=setupfunctions(nonlin_params.reshape((-1,4)),points)
         functions=functions.T
-        functions2= functions*self.sqrt_weights.reshape(-1, 1)
+        functions2= functions*self.reshaped_sqrt_weights
         ovlp_matrix=np.conj(functions2.T)@functions2
         if orbital_norms is None:
             orbital_norms=np.ones(old_action.shape[0])
@@ -488,6 +558,8 @@ class Rothe_evaluator:
         new_lincoeff =(old_lincoeff @ eigvecs @ S_pow12_inv @ eigvecs.T.conj())*np.sqrt(orbital_norms)
         self.optimal_lincoeff=new_lincoeff
         return new_lincoeff
+    
+
 def apply_mask(nonlin_params_old,lincoeff,nbasis,nfrozen,points,sqrt_weights):
     new_params=nonlin_params_old.copy()
     orbitals_before_mask=make_orbitals(lincoeff,nonlin_params_old)
@@ -505,46 +577,49 @@ def apply_mask(nonlin_params_old,lincoeff,nbasis,nfrozen,points,sqrt_weights):
         new_lincoeff=np.empty((nbasis,norbs),dtype=np.complex128)
         old_action=orbitals_masked*sqrt_weights
         X=X.T
-        Xderc=np.zeros_like(X)
         X = X *sqrt_weights.reshape(-1, 1)
-        X_dag=X.conj().T
-        XTX =X_dag @ X
-        I=np.eye(XTX.shape[0])
-        rothe_error=0
-        zs=np.zeros_like(old_action)
-        invmats=[]
-        for orbital_index in range(old_action.shape[0]):
-            Y=old_action[orbital_index]
-            XTy = X_dag @ Y
-            invmats.append(np.linalg.inv(XTX)) #+ lambd * I)) ? the "small c" is already included previously
-            new_lincoeff[:,orbital_index]=invmats[-1]@XTy
-            zs[orbital_index]=Y-X@new_lincoeff[:,orbital_index]
-            rothe_error+=np.linalg.norm(zs[orbital_index])**2
-        Xders=np.array(function_derivs)
-        Xders=Xders.T
+        threshold=1e-7
+        U,Sigma,Vdagger=np.linalg.svd(X,full_matrices=False)
+        Sigma_invvals=np.where(np.abs(Sigma) > threshold, 1.0 / Sigma, 0.0)
+        Sigma_inv=np.diag(Sigma_invvals)
+        full_pseudoinverse=Vdagger.conj().T@Sigma_inv@U.conj().T
+        tempmat=U@Sigma_inv@Vdagger
+        new_lincoeff = full_pseudoinverse @ old_action.T  # shape (M, N)
+        X_new = X @ new_lincoeff                           # shape (D, N)
+        zs = old_action - X_new.T                          # shape (N, D)
+        zsT=zs.T
+        rothe_error = np.sum(np.linalg.norm(zs, axis=1)**2)
+
+        Xders=np.array(function_derivs).T
         Xders = Xders *sqrt_weights.reshape(-1, 1)
         Xders=Xders
         gradient=np.zeros_like(nonlin_params_new)
-        for i in range(len(nonlin_params_new)):
-            Xder=Xderc.copy()
-            Xder[:,nfrozen+i//4]=Xders[:,i]
-            Xder_dag=Xder.conj().T
-            for orbital_index in range(old_action.shape[0]):
-                Y=old_action[orbital_index]
-                invmat=invmats[orbital_index]
-                XTYder=Xder_dag @ Y
-                XTY=X_dag @ Y
-                matrix_der=-invmat@(X_dag@Xder+Xder_dag@X)@invmat
-                cder=matrix_der@XTY+invmat@XTYder
-                gradvec=(-Xder@new_lincoeff[:,orbital_index]-X@cder)
-                gradient[i]+=2*np.real(zs[orbital_index].conj().T@gradvec)
+        M=len(nonlin_params_new)
+        for k in range(M):
+            #See https://geo-ant.github.io/blog/2020/variable-projection-part-1-fundamentals/
+            Xder_k=Xders[:,k]
+            col_index = nfrozen + k // 4
+            c_k=new_lincoeff[col_index,:]
+            Dkc_several = np.outer(Xder_k, c_k)
+            ak_several=Dkc_several-U@(U.conj().T@Dkc_several)
+            vector = Xder_k.conj() @ zsT  # or .T@ if you need exact shape details
+
+            # Outer product -> shape (N, norbs)
+            bk_several = np.outer(tempmat[:, col_index], vector)
+            gradvecs = -ak_several - bk_several  # Shape: (N, num_orbitals)
+            dot_products = np.sum(zs * gradvecs.conj().T, axis=1)  # Shape: (num_orbitals,)
+            gradient[k] += 2 * np.real(np.sum(dot_products))  # Sum over all orbitals    
         if return_best_lincoeff:
             return rothe_error,gradient,new_lincoeff
         return rothe_error,gradient
     nit=0
     initial_mask_error,_,lincoeff_linear=error_and_deriv(nonlin_params_old[4*nfrozen:],True)
-    error_due_to_mask=initial_mask_error
     mask_init_err=1e-10
+    if initial_mask_error>mask_init_err and grid_b<grid_b_cancel:
+        print("You should increase the grid size and rerun from a previous time step")
+        sys.exit()
+    error_due_to_mask=initial_mask_error
+    
     if initial_mask_error>mask_init_err:
         solution,_,time,nit=minimize_transformed_bonds(error_and_deriv,
                                                         start_params=nonlin_params_old[4*nfrozen:],
@@ -560,20 +635,18 @@ def apply_mask(nonlin_params_old,lincoeff,nbasis,nfrozen,points,sqrt_weights):
             new_lincoeff_optimal=lincoeff_linear
             error_due_to_mask=initial_mask_error
         print("Niter: %d, Error due to mask: %.2e/%.2e, time: %.1f"%(nit,error_due_to_mask,initial_mask_error,time))
-    if (nit>=1 or error_due_to_mask>mask_init_err) and grid_b<grid_b_cancel:
-        print("You should increase the grid size and rerun from a previous time step")
-        sys.exit()
-    functions,_=setupfunctions(new_params.reshape((-1,4)),points)
-    functions=functions.T
-    functions2= functions*sqrt_weights.reshape(-1, 1)
-    ovlp_matrix=np.conj(functions2.T)@functions2
+        functions,_=setupfunctions(new_params.reshape((-1,4)),points)
+        functions=functions.T
+        functions2= functions*sqrt_weights.reshape(-1, 1)
+        ovlp_matrix=np.conj(functions2.T)@functions2
 
-    ovlp_matrix_MO_basis=np.conj(new_lincoeff_optimal).T@ovlp_matrix@new_lincoeff_optimal
-    eigvals,eigvecs=np.linalg.eigh(ovlp_matrix_MO_basis)
-    new_lincoeff_optimal=new_lincoeff_optimal@eigvecs #Orthogonalize
+        ovlp_matrix_MO_basis=np.conj(new_lincoeff_optimal).T@ovlp_matrix@new_lincoeff_optimal
+        eigvals,eigvecs=np.linalg.eigh(ovlp_matrix_MO_basis)
+        new_lincoeff_optimal=new_lincoeff_optimal@eigvecs #Orthogonalize
 
-    return new_params,new_lincoeff_optimal,eigvals
-
+        return new_params,new_lincoeff_optimal,eigvals
+    else: 
+        return nonlin_params_old,lincoeff,None
 class Rothe_propagation:
     def __init__(self,params_initial,lincoeffs_initial,pulse,timestep,points,weights,nfrozen=0,t=0,norms=None,params_previous=None,method="HF"):
         self.nbasis=lincoeffs_initial.shape[0]
@@ -605,6 +678,7 @@ class Rothe_propagation:
         self.lambda_grad0=1e-14
         self.last_added_t=0
     def propagate(self,t,maxiter,last_added=False):
+        added_recently=abs(self.t-self.last_added_t)<=0.3
         allow_adding=True
         initial_lincoeffs=self.lincoeffs
         initial_params=self.params
@@ -616,7 +690,7 @@ class Rothe_propagation:
         print("Initial Rothe error: %e"%sqrt(initial_rothe_error))
         start_params=initial_full_new_params
         ls=np.linspace(0,1,6)
-        
+        threshold=0.97
         best=0
         if self.adjustment is not None and self.adjustment.shape == initial_full_new_params.shape:
             updated_res = [initial_rothe_error]
@@ -632,7 +706,7 @@ class Rothe_propagation:
                         changed[idx] = min(max(changed[idx], lower), upper) 
                 updated_re, _, overlap_matrix, _= rothe_evaluator.rothe_plus_gradient(changed,return_overlap=True)
                 biggest_overlap_element=np.max(np.abs(overlap_matrix-np.eye(overlap_matrix.shape[0])))
-                updated_re = 1e100 if biggest_overlap_element > 0.98 else updated_re
+                updated_re = 1e100 if biggest_overlap_element > threshold else updated_re
                 updated_res.append(updated_re)
             
             best = np.argmin(updated_res)
@@ -642,43 +716,35 @@ class Rothe_propagation:
         else:
             print("Old Rothe error: %e"%sqrt(initial_rothe_error))
         gtol=1e-14
-        initial_rothe_error,grad0,overlap_matrix, max_indices=rothe_evaluator.rothe_plus_gradient(initial_full_new_params,return_overlap=True)
-        biggest_overlap_element=np.max(np.abs(overlap_matrix-np.eye(overlap_matrix.shape[0])))
-        ovlpmatrix_eigvals,_=np.linalg.eigh(overlap_matrix)
-        smallest=ovlpmatrix_eigvals[0]
-        if smallest<1e-16:
-            pass
-            #eigval_issue=True
-            #removal_eigvals,largest_elements=cegr.full_diagonalization_smallest_eigenvalues(overlap_matrix,self.nfrozen)
-            #largest_elements_sorted=np.argsort(largest_elements)
-            #if removal_eigvals[largest_elements_sorted[0]]>1e-7 and largest_elements[largest_elements_sorted[0]]>0.98:
-            #    maxindex=largest_elements_sorted[0]
-            #elif removal_eigvals[largest_elements_sorted[1]]>1e-7 and largest_elements[largest_elements_sorted[1]]>0.98:
-            #    maxindex=largest_elements_sorted[1]
-            #else:
-            #maxindex=np.argmax(removal_eigvals)
-            #print("Removing Gaussian with index %d leads to a smallest overlap of %e"%(maxindex,removal_eigvals[maxindex]))
-        else:
-            eigval_issue=False
-        if biggest_overlap_element>0.99 or eigval_issue:
-            index=None
-            #if eigval_issue:
-            #    index=maxindex+self.nfrozen
-            
-            gaussianremover=cegr.GaussianRemovalCalculator(initial_lincoeffs,initial_params.reshape((-1,4)),molecule=molecule)
-            optimized_nonlincoeff, initial_lincoeffs, largest_overlap, final_cost ,num_extra= gaussianremover.run(20,500,eigval_issue=eigval_issue,index=index,num_new=1)
-            print("Largest overlap after removal", largest_overlap)
-            print("Final cost: ",final_cost)
-            if final_cost>1e-4:
-                gaussianremover=cegr.GaussianRemovalCalculator(initial_lincoeffs,initial_params.reshape((-1,4)),molecule=molecule)
-                optimized_nonlincoeff, initial_lincoeffs, largest_overlap, final_cost ,num_extra= gaussianremover.run(20,500,eigval_issue=eigval_issue,index=index,num_new=2)
-                print("Largest overlap after removal", largest_overlap)
-                print("Final cost: ",final_cost)
-            start_params=optimized_nonlincoeff[self.nfrozen:,:].flatten()
-            self.nbasis+=num_extra-1
-            rothe_evaluator.nbasis=self.nbasis
-            if num_extra>=2:
-                allow_adding=False
+        initial_rothe_error,grad0,overlap_matrix, max_indices=rothe_evaluator.rothe_plus_gradient(start_params,return_overlap=True)
+        inold=initial_rothe_error
+        biggest_val=np.abs(overlap_matrix[max_indices])
+        
+        """
+        if biggest_val>threshold:
+            #max_indices=np.arange(self.nfrozen,len(overlap_matrix),1)
+            print("We first optimize the two Gaussians that are closest to each other, independently of the rest:",max_indices,biggest_val)
+
+            for mxidx in [max_indices[0]]:
+               
+                rothe_evaluator.setupOneGaussianOptimization(start_params)
+                parameters_to_optimize=start_params[4*(mxidx-self.nfrozen):4*((mxidx-self.nfrozen+1))]
+                err,grad=rothe_evaluator.optimize_oneGaussian(parameters_to_optimize,mxidx,return_grad=True)
+                #hess_inv0=np.eye(4)
+                sol=minimize(rothe_evaluator.optimize_oneGaussian,
+                            parameters_to_optimize,
+                            method='L-BFGS-B',
+                            args=(mxidx,False,threshold),
+                            options={'maxiter':200,'gtol':1e-16},
+                            bounds=[(avals_min, avals_max),(bvals_min, bvals_max),(pvals_min, pvals_max),(muvals_min, muvals_max)],
+                    )
+                solution=sol.x
+                err=sol.fun
+                #print("New parameters: ",solution)
+                start_params[4*(mxidx-self.nfrozen):4*((mxidx-self.nfrozen+1))]=solution
+            initial_rothe_error,grad0,overlap_matrix, _=rothe_evaluator.rothe_plus_gradient(start_params,return_overlap=True)
+            print("New: %.3e, Old: %.3e"%(sqrt(initial_rothe_error),sqrt(inold)))
+        """
         if optimize_untransformed:
             hess_inv0=np.diag(1/(abs(grad0)+self.lambda_grad0))
             sol=minimize(rothe_evaluator.rothe_plus_gradient,
@@ -715,8 +781,7 @@ class Rothe_propagation:
             backup_lincoeff=new_lincoeff.copy()
             print("RE after opt: %.3e/%.3e, Ngauss=%d, time=%.1f, niter=%d/%d"%(sqrt(new_rothe_error),rothe_epsilon_per_timestep,len(solution)//4,time,niter,maxiter))
         sqrt_RE=sqrt(new_rothe_error)
-        """
-        if (allow_adding and ( (initial_rothe_error<0.99*new_rothe_error and niter>0 and self.t>20) or (sqrt_RE>1.05*rothe_epsilon_per_timestep) or (niter==0 and self.t>20))):
+        if  (initial_rothe_error<0.99*new_rothe_error and niter>0 and self.t>20) or (sqrt_RE>1.05*rothe_epsilon_per_timestep) or (niter==0 and self.t>20):
             print("Rothe error increased; OR bigger than acceptable, something needs to be done")
             solution,new_rothe_error,time,niter=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
                                                         start_params=initial_full_new_params,
@@ -737,18 +802,26 @@ class Rothe_propagation:
                 sqrt_RE=backup_re
             else:
                 print("RE after opt: %.2e/%.2e, Ngauss=%d, time=%.1f, niter=%d/%d"%(sqrt(new_rothe_error),rothe_epsilon_per_timestep,len(solution)//4,time,niter,maxiter))
-         """
         smallest_re_onerem=1e10
         errors_oneremoved=rothe_evaluator.rothe_error_oneremoved(solution)
         small_i=np.argmin(errors_oneremoved)
         smallest_re_onerem=np.min(errors_oneremoved)
         #small_i=28-20
         #smallest_re_onerem=1e-8
+        initial_rothe_error,grad0,overlap_matrix, max_indices=rothe_evaluator.rothe_plus_gradient(solution,return_overlap=True)
+        smallest_eigval=np.linalg.eigvalsh(overlap_matrix)[0]
         print("Errors upon removal: ", np.array2string(np.sort(np.sqrt(errors_oneremoved)), formatter={'float_kind': lambda x: "%.2e" % x}))
-        removal=smallest_re_onerem<new_rothe_error*1.1
+        print("Smallest eigval: ",smallest_eigval)
+        removal =False
+        unnecessary_gaussian=(smallest_eigval<1e-8 and smallest_re_onerem<rothe_epsilon_per_timestep)
+        if smallest_re_onerem<new_rothe_error*1.1 or unnecessary_gaussian:
+            removal =True
         toobig=sqrt_RE>rothe_epsilon_per_timestep
-        if ((toobig or (removal and len(solution)//4>(n_extra-2)) and self.t>10) and (len(solution)//4)<50 and allow_adding):
-            print("We have to add more Gaussians, Rothe error is too big, OR A Gaussian can be removed/reoptimized that doesn't contribute enough, or we have removed a gaussian previously")
+        num_gauss_total_extra=len(solution)//4
+        run_refitting=True
+        #removal=True if smallest_eigval<1e-8 else removal
+        if self.t>10 and not added_recently and maxiter>0 and  (toobig or removal) and num_gauss_total_extra<100:
+            print("Rothe error is too big, or a Gaussian can be reoptimized, or eigval_problem")
             self.last_added_t=self.t
             
             if removal:
@@ -765,6 +838,7 @@ class Rothe_propagation:
                                                         lambda_grad0=self.lambda_grad0,
                                                         intervene=False)
                 new_lincoeff=rothe_evaluator.optimal_lincoeff
+                print("Rothe error after basis reoptimization: %e"%sqrt(new_rothe_error))
             removal=False
             self.nbasis+=1
             rothe_evaluator.nbasis=self.nbasis
@@ -801,13 +875,14 @@ class Rothe_propagation:
             new_rothe_error,_=opt_func_temp(very_best)
             after_first_lin=rothe_evaluator.optimal_lincoeff.copy()
             after_first_RE=sqrt(new_rothe_error)
+            maxiterino=500 if not unnecessary_gaussian else 0
             print("Rothe error after first optimization: %e"%sqrt(new_rothe_error))
             best_new_params=np.concatenate((new_params_list[best][:-4],very_best))
             solution,new_rothe_error,time,niter=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
                                                         start_params=best_new_params,
                                                         gradient=True,
-                                                        maxiter=500,
-                                                        gtol=gtol*1e-2,
+                                                        maxiter=maxiterino,
+                                                        gtol=gtol,
                                                         both=True,
                                                         multi_bonds=1,
                                                         lambda_grad0=self.lambda_grad0,
@@ -820,8 +895,8 @@ class Rothe_propagation:
                 solution,new_rothe_error,time,niter=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
                                                         start_params=new_params_list[best],
                                                         gradient=True,
-                                                        maxiter=500,
-                                                        gtol=gtol*1e-2,
+                                                        maxiter=maxiterino,
+                                                        gtol=gtol,
                                                         both=True,
                                                         multi_bonds=1,
                                                         lambda_grad0=self.lambda_grad0,
@@ -836,13 +911,89 @@ class Rothe_propagation:
                 new_lincoeff=after_first_lin
         self.last_rothe_error=sqrt_RE
         new_params=np.concatenate((initial_params[:4*self.nfrozen],solution))
-        
+        #At this point, we are done with the optimization, and we have the new parameters. Now we have to "fix" the overlap matrix
+        final_rothe_error,_,overlap_matrix, max_indices=rothe_evaluator.rothe_plus_gradient(solution,return_overlap=True)
+        ovlpmatrix_eigvals,_=np.linalg.eigh(overlap_matrix)
+        smallest=ovlpmatrix_eigvals[0]
+        overlap_matrix_non=overlap_matrix[self.nfrozen:,self.nfrozen:]
+        biggest_overlap_element=np.max(np.abs(overlap_matrix_non-np.eye(overlap_matrix_non.shape[0])))
+        index=None
+        eigval_issue=False
+        if smallest<1e-8:
+            print("An eigenvalue of the overlap matrix is too small: %e"%smallest)
+            eigval_issue=True
+            removal_eigvals,largest_elements=cegr.full_diagonalization_smallest_eigenvalues(overlap_matrix,self.nfrozen)
+            largest_elements_sorted=np.argsort(largest_elements)
+            if removal_eigvals[largest_elements_sorted[0]]>5e-8 and largest_elements[largest_elements_sorted[0]]>0.98:
+                maxindex=largest_elements_sorted[0]
+            elif removal_eigvals[largest_elements_sorted[1]]>5e-8 and largest_elements[largest_elements_sorted[1]]>0.98:
+                maxindex=largest_elements_sorted[1]
+            else:
+                maxindex=np.argmax(removal_eigvals)
+            print("Removing Gaussian with index %d leads to a smallest overlap of %e"%(maxindex,removal_eigvals[maxindex]))
+            index=maxindex
+        changed_basis=False
+        final_cost=1e100
+        if (eigval_issue or biggest_overlap_element>0.99) and run_refitting:
+            print("Biggest overlap element: %e, eigvalue issue: %s"%(biggest_overlap_element,eigval_issue))
+            num_new=0
+            optimized_params=[]
+            costs=[]
+            while sqrt(final_cost)>2*rothe_epsilon_per_timestep and num_new<3:
+                num_new+=1
+                gaussianremover=cegr.GaussianRemovalCalculator(new_lincoeff,new_params.reshape((-1,4)),molecule=molecule,penalty_constant=1e-2)
+                optimized_nonlincoeff, updated_lincoeffs, largest_overlap, final_cost ,num_extra= gaussianremover.run(
+                    5,500,index=index,num_new=num_new,best_threshold=rothe_epsilon_per_timestep**2,max_ovlp_first=0.7, max_ovlp_second=0.98)
+                optimized_params.append([optimized_nonlincoeff,updated_lincoeffs,num_extra])
+                costs.append(final_cost)
+                print("Largest overlap after removal", largest_overlap)
+                print("Final cost: %e/%e"%(sqrt(final_cost),rothe_epsilon_per_timestep))
+                
+            if sqrt(final_cost)>rothe_epsilon_per_timestep:
+                best_index=np.argmin(costs)
+                optimized_nonlincoeff=optimized_params[best_index][0]
+                updated_lincoeffs=optimized_params[best_index][1]
+                final_cost=costs[best_index]
+                num_extra=optimized_params[best_index][2]
+            self.nbasis+=num_extra-1
+            rothe_evaluator.nbasis=self.nbasis
+
+            new_lincoeff=updated_lincoeffs
+            new_params=optimized_nonlincoeff.flatten()
+        """
+        elif biggest_overlap_element>0.99:
+            print("Biggest overlap element: %e, eigvalue issue: %s"%(biggest_overlap_element,eigval_issue))
+            num_new=-1
+            optimized_params=[]
+            costs=[]
+            while sqrt(final_cost)>rothe_epsilon_per_timestep and num_new<2:
+                num_new+=1
+                gaussianremover=cegr.GaussianRemovalCalculator(new_lincoeff,new_params.reshape((-1,4)),molecule=molecule)
+                optimized_nonlincoeff, updated_lincoeffs, largest_overlap, final_cost ,num_extra= gaussianremover.run(20,500,eigval_issue=eigval_issue,index=index,num_new=num_new)
+                optimized_params.append([optimized_nonlincoeff,updated_lincoeffs,num_new])
+                costs.append(final_cost)
+                print("Largest overlap after removal", largest_overlap)
+                print("Final cost: %e/%e"%(sqrt(final_cost),rothe_epsilon_per_timestep))
+            if sqrt(final_cost)>rothe_epsilon_per_timestep:
+                best_index=np.argmin(costs)
+                optimized_nonlincoeff=optimized_params[best_index][0]
+                updated_lincoeffs=optimized_params[best_index][1]
+                final_cost=costs[best_index]
+                num_new=optimized_params[best_index][2]
+            self.nbasis+=num_new
+            rothe_evaluator.nbasis=self.nbasis
+
+            new_lincoeff=updated_lincoeffs
+            new_params=optimized_nonlincoeff.flatten()
+        """
         #After opatimization: Make sure orbitals are orthonormal, and apply mask
         new_lincoeff=rothe_evaluator.orthonormalize_orbitals(new_params,new_lincoeff,self.norms)
         if optimize_untransformed:
             print("New Lincoeff:")
             print(list(new_lincoeff))
-        new_params,new_lincoeff,self.norms=apply_mask(new_params,new_lincoeff,self.nbasis,self.nfrozen,self.points,self.sqrt_weights)
+        new_params,new_lincoeff,new_norms=apply_mask(new_params,new_lincoeff,self.nbasis,self.nfrozen,self.points,self.sqrt_weights)
+        if new_norms is not None:
+            self.norms=new_norms
         solution=new_params[4*self.nfrozen:]
 
         #Reorthogonalize the orbitals, but nor reorthonormalize
@@ -903,19 +1054,21 @@ class Rothe_propagation:
         plt.yscale("log")
         plt.close()
 if __name__=="__main__":
-
-    initlen=int(sys.argv[1])
-    n_extra=int(sys.argv[2])
-    F_input = float(sys.argv[3])# Maximum field strength in 10^14 W/cm^2
-    maxiter=int(sys.argv[4])
-    start_time=float(sys.argv[5])
-    molecule=sys.argv[6]
-    freeze_start=sys.argv[7]
-    rothe_epsilon=float(sys.argv[8])
-    optimize_untransformed=sys.argv[9] #Should be False unless we optimize initial state with imaginary time propagation
-    if sys.argv[9] != "True":
+    n_extra=4
+    F_input = float(sys.argv[1])# Maximum field strength in 10^14 W/cm^2
+    maxiter=int(sys.argv[2])
+    start_time=float(sys.argv[3])
+    molecule=sys.argv[4]
+    if molecule=="LiH":
+        initlen=20
+    elif molecule=="LiH2":
+        initlen=34
+    freeze_start=sys.argv[5]
+    rothe_epsilon=float(sys.argv[6])
+    optimize_untransformed=sys.argv[7] #Should be False unless we optimize initial state with imaginary time propagation
+    if optimize_untransformed != "True":
         optimize_untransformed=False
-    method=sys.argv[10]
+    method=sys.argv[8]
     if freeze_start=="freeze":
         nfrozen=initlen
     else:
@@ -923,10 +1076,10 @@ if __name__=="__main__":
 
     inner_grid=10
     if F_input==1:
-        grid_b=200
         grid_b_cancel=200
-    elif F_input==4:
         grid_b=200
+    elif F_input==4:
+        grid_b=150
         grid_b_cancel=400
     elif F_input==0:
         grid_b=30

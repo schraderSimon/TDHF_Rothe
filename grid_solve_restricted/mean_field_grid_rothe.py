@@ -74,6 +74,7 @@ def save_wave_function(filename, wave_function, time_step,xval,time,rothe_error,
         rothe_errors=list(existing_data['rothe_errors'])
         norms_list=list(existing_data['norms'])
         number_of_basis_functions=list(existing_data['nbasis'])
+        nbasis_last=number_of_basis_functions[-1]
     except FileNotFoundError:
         params=[]
         xvals=[]
@@ -86,15 +87,16 @@ def save_wave_function(filename, wave_function, time_step,xval,time,rothe_error,
     elif len(params[-1])<len(wave_function):
         print("Wave function has wrong length")
         print(ngauss)
+        diff=ngauss-nbasis_last
         for i in range(len(params)):
             params_i=np.zeros_like(wave_function)
-            lincoeff_real=params[i][:(ngauss-1)*norbs]#.reshape((ngauss,norbs))
-            lincoeff_complex=params[i][(ngauss-1)*norbs:(ngauss-1)*norbs*2]#.reshape((ngauss,norbs))
-            gaussian_nonlincoeffs=params[i][(ngauss-1)*norbs*2:]
-            params_i[:(ngauss-1)*norbs]=lincoeff_real
-            params_i[ngauss*norbs:(2*ngauss-1)*norbs]=lincoeff_complex
-            params_i[ngauss*norbs*2:-4]=gaussian_nonlincoeffs
-            params_i[-4:]=[1,0,0,0]
+            lincoeff_real=params[i][:(nbasis_last)*norbs]#.reshape((ngauss,norbs))
+            lincoeff_complex=params[i][(nbasis_last)*norbs:(nbasis_last)*norbs*2]#.reshape((ngauss,norbs))
+            gaussian_nonlincoeffs=params[i][(nbasis_last)*norbs*2:]
+            params_i[:(nbasis_last)*norbs]=lincoeff_real
+            params_i[ngauss*norbs:(ngauss+nbasis_last)*norbs]=lincoeff_complex
+            params_i[ngauss*norbs*2:-4*diff]=gaussian_nonlincoeffs
+            params_i[-4*diff:]=[1,0,0,0]*diff
             params[i]=params_i
     elif len(params[-1])>len(wave_function):
         print("Wave function has wrong length")
