@@ -216,6 +216,8 @@ class GaussianRemovalCalculator:
                                    np.conj(F_old[i]) * self.sqrt_weights)
                         )
         overlapmatrix_eigvals,overlapmatrix_eigvecs=np.linalg.eigh(overlapmatrix_full)
+
+        smallest_eigval=overlapmatrix_eigvals[0]
         total_error = np.real(total_error)
         grad = np.real(grad)
         ovlp_max = np.real(ovlp_max)
@@ -223,7 +225,7 @@ class GaussianRemovalCalculator:
             return total_error, grad, ovlp_max
         return total_error, grad
 
-    def add_new_gaussians(self, existing_params, original_orbitals, initial_guess,num_new=1, num_unfrozen_old=0,maxiter=100,max_ovlp=0.975,a_min_threshold=0.1):
+    def add_new_gaussians(self, existing_params, original_orbitals, initial_guess,num_new=1, num_unfrozen_old=0,maxiter=300,max_ovlp=0.975,a_min_threshold=0.1):
         """
         _, final_new_candidate, final_cost, final_ovlp_max = self.add_new_gaussians(
                 self.params, self.orbitals_full, num_new=0, num_unfrozen_old=n_unfrozen,maxiter=500,max_ovlp=0.95,a_min_threshold=0.1001)
@@ -234,9 +236,9 @@ class GaussianRemovalCalculator:
 
         for i in range(num_new):
                 initial_guess_full[4 * i] = initial_guess[0] + (np.random.rand()) * 0.1
-                initial_guess_full[4 * i + 1] = initial_guess[1] + (np.random.rand() - 0.5) * abs(initial_guess[1])*0.1
-                initial_guess_full[4 * i + 2] = initial_guess[2] + (np.random.rand() - 0.5) * abs(initial_guess[2])*0.1
-                initial_guess_full[4 * i + 3] = initial_guess[3] + (np.random.rand() - 0.5) * abs(initial_guess[3]) *0.1
+                initial_guess_full[4 * i + 1] = initial_guess[1] + (np.random.rand() - 0.5) * abs(initial_guess[1])
+                initial_guess_full[4 * i + 2] = initial_guess[2] + (np.random.rand() - 0.5) * abs(initial_guess[2])
+                initial_guess_full[4 * i + 3] = initial_guess[3] + (np.random.rand() - 0.5) * abs(initial_guess[3])
 
         initial_guess = initial_guess_full
 
@@ -255,7 +257,7 @@ class GaussianRemovalCalculator:
         res = minimize(self.cost_and_grad, initial_guess, args=(existing_params, F_old, X_old,
                                                                   old_action, nfrozen, num_new,
                                                                   a_min_threshold, max_overlap),
-                       method='BFGS', jac=True, options={"maxiter":maxiter,'gtol': 1e-12, "hess_inv0": hess_inv0})
+                       method='BFGS',jac=True, options={"maxiter":maxiter,'gtol': 1e-12, "hess_inv0": hess_inv0})
         new_candidate = res.x.reshape((num_new, 4))
         new_candidate[:, 0] = np.abs(new_candidate[:, 0])
         # Recalculate without penalty.
@@ -268,37 +270,13 @@ class GaussianRemovalCalculator:
         self.penalty_constant = penalty_constant_temp
         return res, new_candidate, new_cost_npenalty, ovlp_max
 
-    def run(self,num_sugg,maxiter,max_ovlp_first=0.95, max_ovlp_second=0.98,index=None,num_new=1,best_threshold=1e-8):
+    def run(self,num_sugg,maxiter,max_ovlp_first=0.95, max_ovlp_second=0.98,index=None,num_new=1,best_threshold=1e-8,refitted_params=None,amin=0.1):
         ngauss_frozen = 20 if self.molecule == "LiH" else 34
         n_unfrozen = self.params.shape[0] - ngauss_frozen
+        nfrozen=ngauss_frozen
         self.create_grid(-400, 400)
         orbitals_full = self.compute_orbitals(self.params, self.lincoeffs)
         self.orbitals_full = orbitals_full
-        if False:
-            _, final_new_candidate, final_cost, final_ovlp_max = self.add_new_gaussians(
-                self.params, self.orbitals_full, num_new=num_new, num_unfrozen_old=n_unfrozen,maxiter=500,max_ovlp=0.95,a_min_threshold=0.1001)
-            print("Final cost: {:.2e}".format(final_cost))
-            
-            final_nonlinear_params= np.concatenate((self.params[:ngauss_frozen, :], final_new_candidate), axis=0)
-            functions, _ = GR.setupfunctions(final_nonlinear_params, self.points)
-            X_total = functions.T * self.sqrt_weights.reshape(-1, 1)
-            X_total_dag = X_total.conj().T
-            XTX = X_total_dag @ X_total
-            XTX_inv = np.linalg.inv(XTX + np.eye(XTX.shape[0]) * 1e-14)
-            n_orbs = self.orbitals_full.shape[0]
-            best_linear = np.zeros((final_nonlinear_params.shape[0], n_orbs), dtype=np.complex128)
-            for orbital_index in range(n_orbs):
-                Y = self.orbitals_full[orbital_index] * self.sqrt_weights
-                XTY = X_total_dag @ Y
-                best_linear[:, orbital_index] = XTX_inv @ XTY
-
-            S_final, _ = self.compute_basis_overlap(final_nonlinear_params)
-            S_final_off = S_final.copy()[ngauss_frozen:, ngauss_frozen:]
-            np.fill_diagonal(S_final_off, 0)
-            largest_overlap = np.max(np.abs(S_final_off))
-            print("Final overlap: {:.4f}".format(largest_overlap))
-            return final_nonlinear_params, best_linear, largest_overlap, final_cost,num_new
-
         S, _ = self.compute_basis_overlap(self.params)
         S_off = S.copy()
         np.fill_diagonal(S_off, 0)
@@ -315,6 +293,7 @@ class GaussianRemovalCalculator:
         new_params_j, _,errors_j, deleted_params_j = self.re_fit_without_gaussian(self.params, self.lincoeffs, j_max)
         new_params_i, _,errors_i, deleted_params_i = self.re_fit_without_gaussian(self.params, self.lincoeffs, i_max)
         if sum(errors_i) < sum(errors_j) and i_max>ngauss_frozen: # i needs to be unfrozen
+            print("Derp")
             new_params_j = new_params_i #We remove the one with the smaller error
             errors_j = errors_i
             deleted_params_j=deleted_params_i
@@ -322,18 +301,53 @@ class GaussianRemovalCalculator:
         best = 1e100
         best_params = None
         if index is not None:
-            new_params_j,_,errors_j,deleted_params_j=self.re_fit_without_gaussian(self.params,self.lincoeffs,index)
-            print("Overlap matrix wants us to remove Gaussian ",index)
+            new_params_j,_,errors_j,deleted_params_j=self.re_fit_without_gaussian(self.params,self.lincoeffs,index+ngauss_frozen)
+            print("Eigenvalue wants us to remove Gaussian ",index," intial error: ",sum(errors_j))
             j_max=index
         n_unfrozen = new_params_j.shape[0] - ngauss_frozen
-        print("Now, refitting the basis without Gaussian ",j_max)
-        _, removed_candidates, new_cost, ovlp_max_candidate = self.add_new_gaussians(
-            new_params_j, orbitals_full, num_new=0, num_unfrozen_old=n_unfrozen,initial_guess=deleted_params_j,max_ovlp=max_ovlp_second,a_min_threshold=0.1001,maxiter=500)
-        print("Error after refitting: {:.6e}".format(new_cost))
+        
+        if refitted_params is not None:
+            print("Reusing refitted params")
+            removed_candidates=refitted_params
+        else:
+            print("Now, refitting the basis without Gaussian ",j_max)
+            _, removed_candidates, new_cost, _ = self.add_new_gaussians(
+                new_params_j, orbitals_full, num_new=0, num_unfrozen_old=n_unfrozen,initial_guess=deleted_params_j,max_ovlp=max_ovlp_second,a_min_threshold=amin+0.001,maxiter=500)
+            print("Error after refitting: {:.6e}".format(new_cost))
         new_params_j[ngauss_frozen:,:]=removed_candidates
+        """
+        if new_cost < best_threshold and ovlp_max_candidate < 0.99:
+            pass
+            print("Removal is sufficient to get a good candidate")
+            final_nonlinear_params = new_params_j
+            final_cost= new_cost
+            functions, _ = GR.setupfunctions(final_nonlinear_params, self.points)
+            X_total = functions.T * self.sqrt_weights.reshape(-1, 1)
+            X_total_dag = X_total.conj().T
+            XTX = X_total_dag @ X_total
+            XTX_inv = np.linalg.inv(XTX + np.eye(XTX.shape[0]) * 1e-14)
+            n_orbs = self.orbitals_full.shape[0]
+            best_linear = np.zeros((final_nonlinear_params.shape[0], n_orbs), dtype=np.complex128)
+            for orbital_index in range(n_orbs):
+                Y = self.orbitals_full[orbital_index] * self.sqrt_weights
+                XTY = X_total_dag @ Y
+                best_linear[:, orbital_index] = XTX_inv @ XTY
+
+            S_final, _ = self.compute_basis_overlap(final_nonlinear_params)
+            S_final_off = S_final.copy()[nfrozen:, nfrozen:]
+            np.fill_diagonal(S_final_off, 0)
+            largest_overlap = np.max(np.abs(S_final_off))
+            eigvals= np.linalg.eigvalsh(S_final)
+            print("Final smallest eigenvalue: {:.4e}".format(np.min(eigvals)))
+            return final_nonlinear_params, best_linear, largest_overlap, final_cost,0
+        """  
+
+
+
+        maxiterino=maxiter
         for k in range(num_sugg):
             _, new_candidate, new_cost, ovlp_max_candidate = self.add_new_gaussians(
-                new_params_j, orbitals_full, num_new=num_new, initial_guess=deleted_params_j,max_ovlp=max_ovlp_first,a_min_threshold=0.1001,maxiter=100)
+                new_params_j, orbitals_full, num_new=num_new, initial_guess=deleted_params_j,max_ovlp=max_ovlp_first,a_min_threshold=amin+0.001,maxiter=500)
             print(new_cost)
             if new_cost < best and ovlp_max_candidate < 0.99:
                 best = new_cost
@@ -349,7 +363,7 @@ class GaussianRemovalCalculator:
         
         n_unfrozen = all_new_params.shape[0] - ngauss_frozen
         _, final_new_candidate, final_cost, final_ovlp_max = self.add_new_gaussians(
-            all_new_params, self.orbitals_full, num_new=0, num_unfrozen_old=n_unfrozen,maxiter=maxiter,max_ovlp=max_ovlp_second,a_min_threshold=0.1001,initial_guess=None)
+            all_new_params, self.orbitals_full, num_new=0, num_unfrozen_old=n_unfrozen,maxiter=maxiterino,max_ovlp=max_ovlp_second,a_min_threshold=amin+0.001,initial_guess=None)
         print("Final cost: {:.6e}".format(final_cost))
         nfrozen = all_new_params.shape[0] - n_unfrozen
         final_nonlinear_params = np.concatenate((all_new_params[:nfrozen, :], final_new_candidate), axis=0)
@@ -371,7 +385,7 @@ class GaussianRemovalCalculator:
         np.fill_diagonal(S_final_off, 0)
         largest_overlap = np.max(np.abs(S_final_off))
 
-        return final_nonlinear_params, best_linear, largest_overlap, final_cost,num_new
+        return final_nonlinear_params, best_linear, largest_overlap, final_cost,num_new,removed_candidates
 
 def test_gradient(calc):
     """

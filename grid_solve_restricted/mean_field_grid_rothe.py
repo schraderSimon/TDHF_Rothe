@@ -85,8 +85,7 @@ def save_wave_function(filename, wave_function, time_step,xval,time,rothe_error,
     if len(params)==0 or len(params[-1])==len(wave_function):
         pass
     elif len(params[-1])<len(wave_function):
-        print("Wave function has wrong length")
-        print(ngauss)
+        print("Wave function has wrong length: A parameter has been added")
         diff=ngauss-nbasis_last
         for i in range(len(params)):
             params_i=np.zeros_like(wave_function)
@@ -99,17 +98,44 @@ def save_wave_function(filename, wave_function, time_step,xval,time,rothe_error,
             params_i[-4*diff:]=[1,0,0,0]*diff
             params[i]=params_i
     elif len(params[-1])>len(wave_function):
-        print("Wave function has wrong length")
-        for i in range(len(params)):
-            ngauss_wrong=len(params[i])//(4+norbs*2)
-            params_i=np.zeros_like(wave_function)
-            lincoeff_real=params[i][:ngauss*norbs]
-            lincoeff_complex=params[i][ngauss_wrong*norbs:(ngauss+ngauss_wrong)*norbs]
-            gaussian_nonlincoeffs=params[i][ngauss_wrong*norbs*2:-4*(ngauss_wrong-ngauss)]
-            params_i[:len(lincoeff_real)]=lincoeff_real
-            params_i[len(lincoeff_real):len(lincoeff_real)+len(lincoeff_complex)]=lincoeff_complex
-            params_i[len(lincoeff_real)+len(lincoeff_complex):]=gaussian_nonlincoeffs
-            params[i]=params_i
+        
+        max_num_gauss=np.max(number_of_basis_functions)
+        if max_num_gauss<=ngauss: #If no Gaussian has been removed
+            print("Wave function has wrong length: we have recently overwritten with zeros")
+            for i in range(len(params)):
+                ngauss_wrong=len(params[i])//(4+norbs*2)
+                params_i=np.zeros_like(wave_function)
+                lincoeff_real=params[i][:ngauss*norbs]
+                lincoeff_complex=params[i][ngauss_wrong*norbs:(ngauss+ngauss_wrong)*norbs]
+                gaussian_nonlincoeffs=params[i][ngauss_wrong*norbs*2:-4*(ngauss_wrong-ngauss)]
+                params_i[:len(lincoeff_real)]=lincoeff_real
+                params_i[len(lincoeff_real):len(lincoeff_real)+len(lincoeff_complex)]=lincoeff_complex
+                params_i[len(lincoeff_real)+len(lincoeff_complex):]=gaussian_nonlincoeffs
+                params[i]=params_i
+        else:
+            print("Wave function has wrong length: A parameter has been removed")
+            #We have to pad with zeros
+            ngauss=max_num_gauss
+            for i in range(len(params)):
+                ngauss_wrong=len(params[i])//(4+norbs*2)
+                params_i=np.zeros(ngauss*(4+norbs*2),dtype=np.complex128)
+                lincoeff_real=params[i][:ngauss*norbs]
+                lincoeff_complex=params[i][ngauss_wrong*norbs:(ngauss+ngauss_wrong)*norbs]
+                gaussian_nonlincoeffs=params[i][ngauss_wrong*norbs*2:-4*(ngauss_wrong-ngauss)]
+                params_i[:len(lincoeff_real)]=lincoeff_real
+                params_i[len(lincoeff_real):len(lincoeff_real)+len(lincoeff_complex)]=lincoeff_complex
+                params_i[len(lincoeff_real)+len(lincoeff_complex):]=gaussian_nonlincoeffs
+                params[i]=params_i
+            #We also have to change wave_function to accomodate for the "wrong" number of gaussians
+            wave_function_new=np.zeros(ngauss*(4+norbs*2),dtype=np.complex128)
+            lincoeff_real=wave_function[:ngauss*norbs]
+            lincoeff_complex=wave_function[ngauss*norbs:ngauss*norbs*2]
+            gaussian_nonlincoeffs=wave_function[ngauss*norbs*2:-4*(ngauss-ngauss)]
+            wave_function_new[:len(lincoeff_real)]=lincoeff_real
+            wave_function_new[len(lincoeff_real):len(lincoeff_real)+len(lincoeff_complex)]=lincoeff_complex
+            wave_function_new[len(lincoeff_real)+len(lincoeff_complex):]=gaussian_nonlincoeffs
+            wave_function=wave_function_new
+            # Append new wave function at the current time step
     params.append(wave_function)
     xvals.append(xval)
     times.append(time)

@@ -1,0 +1,21 @@
+DFT LiH 0.0534:
+1e00
+3e00
+running: 2e-1
+
+DFT LiH2 0.0534:
+
+HF LiH 0.0534:
+8e-1
+running: 2e-1, 5e-2
+HF LiH2 0.0534:
+
+
+DFT LiH 0.1068:
+
+DFT LiH2 0.1068:
+running: 30
+HF LiH 0.1068:
+running: 1,5,10
+HF LiH2 0.1068:
+running: 7,15,30
