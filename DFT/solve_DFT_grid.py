@@ -50,7 +50,7 @@ def total_energy_function(grids,orbitals,density,pos,charge,v_ext,printing=False
         hartree=hartree_energy_function(grids,density)
         exchange_correlation=sum(exc(density)*density)*dx
         if len(charge)>=1:
-            nuclear_nuclear_repulsion=sum([charge[i]*charge[j]/np.sqrt((pos[i]-pos[j])**2+1) for i in range(len(charge)) for j in range(i+1,len(charge))])
+            nuclear_nuclear_repulsion=sum([charge[i]*charge[j]/np.sqrt((pos[i]-pos[j])**2) for i in range(len(charge)) for j in range(i+1,len(charge))])
         else:
             nuclear_nuclear_repulsion=0
         if printing:
@@ -67,11 +67,8 @@ if __name__ == '__main__':
     energies=[]
     density=None
     #Test 1: H2 molecule
-    run_H2=False
-    charge=[1,1]
-    n_elec=sum(charge)
-    n_orbs=n_elec//2
-    grids = np.linspace(-30,30,401)
+    
+    grids = np.linspace(-40,40,2001)
     dx=grids[1]-grids[0]
     T=make_kinetic_energy_operator(grids)
     def kinetic_energy_function(orbitals):
@@ -81,8 +78,68 @@ if __name__ == '__main__':
     exc=epsilon_xc
     exchange_correlation_potential=v_xc
     
-    xvals=np.linspace(0,5,101)
-    if run_H2:
+    names=["Be","Be2+","Li+","He","LiH","(LiH)_2"]
+    charges=[[4],[4],[3],[2],[3,1],[3,1,3,1]]
+    positions=[[0],[0],[0],[0],[-1.15,1.15],[-4.05, -1.75, 1.75, 4.05]]
+    n_elecs=[4,2,2,2,4,8]
+    n=2
+    charges=charges[-n:] #Only run LiH and (LiH)_2
+    positions=positions[-n:]
+    n_elecs=n_elecs[-n:]
+    names=names[-n:]
+    for k in range(len(names)):
+        charge=charges[k]
+        n_elec=n_elecs[k]
+        n_orbs=n_elec//2
+        pos=positions[k]
+        v_ext=v_ext_func(grids,charge,pos,a=0.5)
+        onebody_operator=T+np.diag(v_ext(grids))
+        eigvals,eigvecs=eigh(onebody_operator)
+        orbitals=eigvecs.T/np.sqrt(dx)
+        initial_orbitals=orbitals[:n_orbs]
+        initial_density=np.sum(initial_orbitals**2,axis=0)*2
+        E_init=total_energy_function(grids,initial_orbitals,initial_density,pos,charge,v_ext)
+
+        if density is None:
+            pass
+            density=initial_density
+        density=np.array(density)
+        imax=100
+        best_E=1e10
+        for i in range(imax):
+            old_density=density
+            effective_potential=v_ext(grids)+hartree_potential(grids,density)+exchange_correlation_potential(density)
+            onebody_operator=T+np.diag(effective_potential)
+            eigvals,eigvecs=eigh(onebody_operator)
+            orbitals=eigvecs.T/np.sqrt(dx)
+            orbitals=orbitals[:n_orbs]
+
+            density=np.sum(orbitals**2,axis=0)*2
+            energy=total_energy_function(grids,orbitals,density,pos,charge,v_ext)
+            if energy<best_E:
+                best_density=density
+                best_orbitals=orbitals
+                best_E=energy
+            if i<imax-1:
+                pass
+                density=(0.2*density+0.8*old_density)
+        printing=False
+        if names[k]=="LiH" or names[k]=="(LiH)_2":
+            printing=True
+        E=total_energy_function(grids,orbitals,density,pos,charge,v_ext,nucnuc=True,printing=printing)
+        print("Energy of ",names[k],": ",best_E)
+        if len(positions[k])>1:
+            dipole=sum(dx*density*grids)
+            print("Dipole moment of ",names[k],": ",dipole)
+   
+    run_H2=False
+    if run_H2: #Ignore htis for the time being
+        xvals=np.linspace(0,5,101)
+        charge=[1,1]
+        n_elec=sum(charge)
+        n_orbs=n_elec//2
+        
+        
         for x in xvals:
             pos=[0,x]
             v_ext=v_ext_func(grids,charge,pos,a=1)
@@ -114,7 +171,7 @@ if __name__ == '__main__':
                 energy=total_energy_function(grids,orbitals,density,pos,charge,v_ext)
                 if i<imax-1:
                     pass
-                    density=(0.1*density+0.9*old_density)
+                    density=(0.1*density+0.9*old_density) #Mixing
                     #normalize density
                 best_energies.append(energy)
             E=total_energy_function(grids,orbitals,density,pos,charge,v_ext,nucnuc=True)
@@ -122,39 +179,4 @@ if __name__ == '__main__':
             energies.append(min(best_energies))
         plt.plot(xvals,energies)
         plt.show()
-    names=["Be","Be2+","Li+","He"]
-    charges=[4,4,3,2]
-    n_elecs=[4,2,2,2]
-    for k in range(len(names)):
-        charge=[charges[k]]
-        n_elec=n_elecs[k]
-        n_orbs=n_elec//2
-        pos=[0]
-        v_ext=v_ext_func(grids,charge,pos,a=1)
-        onebody_operator=T+np.diag(v_ext(grids))
-        eigvals,eigvecs=eigh(onebody_operator)
-        orbitals=eigvecs.T/np.sqrt(dx)
-        initial_orbitals=orbitals[:n_orbs]
-        initial_density=np.sum(initial_orbitals**2,axis=0)*2
-        E_init=total_energy_function(grids,initial_orbitals,initial_density,pos,charge,v_ext)
-
-        if density is None:
-            pass
-            density=initial_density
-        density=np.array(density)
-        imax=40
-        for i in range(imax):
-            old_density=density
-            effective_potential=v_ext(grids)+hartree_potential(grids,density)+exchange_correlation_potential(density)
-            onebody_operator=T+np.diag(effective_potential)
-            eigvals,eigvecs=eigh(onebody_operator)
-            orbitals=eigvecs.T/np.sqrt(dx)
-            orbitals=orbitals[:n_orbs]
-
-            density=np.sum(orbitals**2,axis=0)*2
-            energy=total_energy_function(grids,orbitals,density,pos,charge,v_ext)
-            if i<imax-1:
-                pass
-                density=(0.1*density+0.9*old_density)
-        E=total_energy_function(grids,orbitals,density,pos,charge,v_ext,nucnuc=True)
-        print("Energy of ",names[k],": ",E)
+    

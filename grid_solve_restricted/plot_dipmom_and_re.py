@@ -1,27 +1,9 @@
-#!/usr/bin/env python3
-# =========================================================
-#  High‑harmonic generation analysis & plotting
-#  --------------------------------------------------------
-#  1st figure : Dipole & derivative (side‑by‑side)
-#  2nd figure : Instantaneous Rothe error
-#  3rd figure : Three‑panel composite
-#               ├─ Dipole (again)
-#               ├─ HHG – low‑quality runs  (legend lives here)
-#               └─ HHG – high‑quality runs
-#
-#  Usage:
-#     python plot_hhg.py <molecule> <I0(W/cm2)> [HF|DFT]
-# =========================================================
 
 import os, re, sys
 import numpy as np
 import scipy.fftpack
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-
-# ---------------------------------------------------------
-#  FFT‑helper
-# ---------------------------------------------------------
 def compute_hhg_spectrum(t, dip, hann_window=True):
     """Return (ω, |D(ω)|²) for a dipole time series."""
     d  = np.asarray(dip) - dip[0]
@@ -35,10 +17,6 @@ def compute_hhg_spectrum(t, dip, hann_window=True):
     ω  = scipy.fftpack.fftshift(scipy.fftpack.fftfreq(len(t))) * 2 * np.pi / dt
     return ω, Px
 
-
-# ---------------------------------------------------------
-#  Command‑line
-# ---------------------------------------------------------
 if len(sys.argv) < 3:
     sys.exit("Syntax:  plot_hhg.py  <molecule>  <I0(W/cm2)>  [HF|DFT]")
 
@@ -53,9 +31,6 @@ print(f"→ Molecule  : {molecule}")
 print(f"→ Method    : {method}")
 print(f"→ E₀ (a.u.) : {fieldstrength:.4f}")
 
-# ---------------------------------------------------------
-#  Grid reference
-# ---------------------------------------------------------
 grid_solution_exists = False
 try:
     base = "/home/simonsch/projects/TDHF/grid-methods/examples/"
@@ -71,14 +46,9 @@ try:
 except Exception:
     print("→ No grid reference – continuing without it.")
 
-# ---------------------------------------------------------
-#  Gather Rothe files
-# ---------------------------------------------------------
 pat_filestr = f"WF_{method}_{molecule}_{fieldstrength:.4f}_"
 files = [f for f in os.listdir(".") if f.startswith(pat_filestr)]
 
-# Accept any number of integers between fieldstrength and epsilon,
-# but capture the **last two** (N_init, maxiter) plus the epsilon.
 regex = re.compile(
     rf"^WF_{method}_{molecule}_{fieldstrength:.4f}_(?:\d+_)*?"
     r"(\d+)_(\d+)_(\d\.\d+e[+-]\d+)\.npz$"
@@ -95,7 +65,6 @@ for f in files:
     if not m:
         print(f"Skipping {f} (name mismatch)")
         continue
-    #print(f"→ Reading {f}")
     n_init, n_iter, eps = int(m[1]), int(m[2]), float(m[3])
 
     try:
@@ -115,7 +84,7 @@ for f in files:
         ω, Px = compute_hhg_spectrum(t, dip)
         Px   *= (ω / omega_ref)**2
 
-        if t[-1] > 300:          # keep only “long” simulations
+        if t[-1] > 300:         
             ω_list .append(ω)
             Px_list.append(Px)
         else:
@@ -125,9 +94,6 @@ for f in files:
         t_list .append(t)
         dip_list.append(dip)
         err_list.append(errs)
-        #if n_iter==0:
-        #    final_err.append(np.inf)
-        #else:
         final_err .append(float(np.sum(errs)))
         Ninit    .append(n_init)
         Nmax     .append(n_iter)
@@ -141,9 +107,6 @@ for f in files:
 if not t_list:
     sys.exit("No Rothe files found – nothing to plot.")
 
-# ---------------------------------------------------------
-#  Rank runs by total Rothe error
-# ---------------------------------------------------------
 idx_sorted = sorted(range(len(t_list)), key=lambda i: final_err[i])[::-1]  # low→high
 if molecule == "LiH" and method == "HF" and Wcm2 == 1:
     #Swap first and second
@@ -162,15 +125,12 @@ palette[1]="blue"
 palette[0]=darker
 color_map  = {i: palette[k % len(palette)] for k,i in enumerate(idx_sorted)}
 print(palette)
-# › pick two worst & two best (if available) among those w/ HHG data
+
 qual_pairs = [(i, final_err[i]) for i in idx_sorted if ω_list[i] is not None]
 qual_pairs.sort(key=lambda p: p[1])          # ascending error
 low_idx  = [i for i,_ in qual_pairs[:2]]
 high_idx = [i for i,_ in qual_pairs[-2:]]
 
-# ---------------------------------------------------------
-#  HHG axis limits
-# ---------------------------------------------------------
 x_min, x_max = (1, 60) if abs(fieldstrength - 0.0534) < 1e-5 else (1, 90)
 
 def hhg_ylim():
@@ -182,13 +142,8 @@ def hhg_ylim():
     return y_min, y_max
 
 y_min, y_max = hhg_ylim()
-
-# =========================================================
-#  Figure 1 – Dipole & derivative
-# =========================================================
 fig1, ax = plt.subplots(1, 2, figsize=(12, 5))
 
-# (a) dipole
 if grid_solution_exists:
     ax[0].plot(t_grid, dip_grid, c="k", lw=1.2, label="Grid")
 for i in idx_sorted:
@@ -199,7 +154,6 @@ ax[0].set(xlabel="Time (a.u.)", ylabel="Dipole moment (a.u.)",
           title="Dipole moments")
 ax[0].legend(fontsize=8, framealpha=0.6)
 
-# (b) derivative
 if grid_solution_exists:
     ax[1].plot(t_grid[1:], dip_grid[1:]-dip_grid[:-1],
                c="k", lw=1.2, label="Grid")
@@ -213,11 +167,6 @@ ax[1].set(xlabel="Time (a.u.)", ylabel="Δ Dipole",
 ax[1].legend(fontsize=8, framealpha=0.6)
 
 fig1.tight_layout()
-#fig1.savefig(f"plots/HHG_{molecule}_{fieldstrength:.4f}_{method}_dipole.pdf")
-
-# =========================================================
-#  Figure 2 – Instantaneous Rothe error
-# =========================================================
 fig2, ax_e = plt.subplots(figsize=(6, 4))
 for i in idx_sorted:
     ax_e.plot(t_list[i], err_list[i],
@@ -227,11 +176,9 @@ ax_e.set(xlabel="Time (a.u.)", ylabel="Rothe error",
          title="Rothe error vs time")
 ax_e.legend(fontsize=8, framealpha=0.6)
 fig2.tight_layout()
-#fig2.savefig(f"plots/HHG_{molecule}_{fieldstrength:.4f}_{method}_errors.pdf")
-# =========================================================
-#  Figure 3 – Three‑panel composite
-#          (Dipole / low‑quality HHG / high‑quality HHG)
-# =========================================================
+
+
+
 fig3 = plt.figure(figsize=(1.2*3.4, 1.2*7))          # ~2‑column width
 gs   = gridspec.GridSpec(3, 1, height_ratios=[0.4, 0.3, 0.3],
                          hspace=0.35)
@@ -240,9 +187,7 @@ axA = fig3.add_subplot(gs[0, 0])   # Dipole (legend lives above this axis)
 axC = fig3.add_subplot(gs[1, 0])   # Low‑quality HHG
 axB = fig3.add_subplot(gs[2, 0])   # High‑quality HHG
 
-# ---------------------------------------------------------
-# A) Dipole moment
-# ---------------------------------------------------------
+#Dipole moment
 display_idx = list(dict.fromkeys(low_idx + high_idx))   # grid + 4 runs
 lw_ref=1.1
 lw_Rothe=1
@@ -255,7 +200,6 @@ for j,i in enumerate(idx_sorted):
     else:
         lbl = (rf"$M_{{max}}={gaussians[i]}$"
             if i in display_idx else "_nolegend_")
-    #print(lbl)
     axA.plot(t_list[i],
              dip_list[i],
              c=color_map[i],
@@ -267,7 +211,7 @@ axA.set(
     xlim=(-2, 312),
 )
 axA.set_title("Dipole moments",fontsize=11)
-# ----- Legend: top‑center, 3 columns (falls to 2 rows for 5 labels) --
+
 handles, labels = axA.get_legend_handles_labels()
 
 fig3.legend(
@@ -280,9 +224,6 @@ fig3.legend(
     columnspacing=0.5,
     borderpad=0.2
 )
-#axA.legend_.remove()   # drop the axis‑level legend, we’ve moved it to fig# ---------------------------------------------------------
-# helper for HHG panels
-# ---------------------------------------------------------
 def hhg_panel(ax, indices, title):
     if grid_solution_exists:
         ax.plot(ω_grid / omega_ref, Px_grid,
@@ -307,24 +248,17 @@ def hhg_panel(ax, indices, title):
     if y_min is not None and y_max is not None:
         ax.set_ylim(y_min, y_max)
 
-# B) Low‑quality HHG – no legend
+#High quality HHG
 hhg_panel(axB, low_idx,  "HHG spectra – additional Gaussians")
 
-# C) High‑quality HHG – no legend
+# C) Low quality HHG
 hhg_panel(axC, high_idx, "HHG spectra – no additional Gaussians")
-
-# ---------------------------------------------------------
-# Layout tweaks so y‑labels aren’t clipped
-# ---------------------------------------------------------
 fig3.suptitle(
     f"HHG – {molecule}, {method}, $I_0={Wcm2}\\times 10^{{14}}$ W/cm$^2$",
     fontsize=13,
     x=0.57,
     y=0.975                     # ← control vertical placement
 )
-#import matplotlib.ticker as ticker
-#if Wcm2 == 1:
-#    axA.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
 fig3.subplots_adjust(left=0.18, right=0.98, top=0.85, bottom=0.05)
 fig3.savefig(f"plots/HHG_{molecule}_{fieldstrength:.4f}_{method}.pdf")
 #plt.show()

@@ -36,6 +36,7 @@ def epsilon_x_alt(rho, f_spline):
     
     return result# Step 1: Sample points
 def epsilon_c(rho):
+    rho=abs(rho)+1e-17
     A=18.4
     B=0
     C=7.501
@@ -48,7 +49,7 @@ def epsilon_c(rho):
     term1=-0.5*np.log1p(alpha*rs+beta*rs**m)
     term2=rs+E*rs**2
     term3=A+B*rs+C*rs**2+D*rs**3
-    negligible_rho=np.abs(rho)<1e-16
+    negligible_rho=np.abs(rho)<1e-15
     result=term1*term2/term3
     result[negligible_rho] = 0
     return result
@@ -68,7 +69,7 @@ def epsilon_c_deriv(rho):
     """
     # Ensure rho is a numpy array for vectorized operations
     rho = np.atleast_1d(rho)
-    
+    rho=abs(rho)+1e-17
     # Define parameters
     A = 18.4
     B = 0.0
@@ -140,11 +141,12 @@ def make_exchange_correlation_and_potential(x_sample,y_sample):
     epsilon_x_spline = CubicSpline(x_sample, y_sample)
     epsilon_x_spline_deriv = epsilon_x_spline.derivative()
     def epsilon_x_deriv(rho):
+        rho=abs(rho)+1e-17
         condition1 = rho < 1e-12
         result1 = 0.5*np.log(rho) + 0.5*np.log(2) - 0.082
         
         condition2 = rho > 1000
-        result2 =-0.1015/(rho**2)
+        result2 =-0.1015/((rho)**2)
         
         default_result = epsilon_x_spline_deriv(rho)
         
@@ -152,8 +154,9 @@ def make_exchange_correlation_and_potential(x_sample,y_sample):
         
         return result# Step 1: Sample points
     def epsilon_x(rho):
+        rho=abs(rho)+1e-17
         condition1 = rho < 1e-12
-        result1 = -0.291*2*rho+np.log(2*rho)*(0.5*rho)
+        result1 = -0.291*2*rho+np.log(2*(rho))*(0.5*rho)
         
         condition2 = rho > 1000
         result2 =-1/2+0.203/(2*rho)
