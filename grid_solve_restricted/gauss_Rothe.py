@@ -824,7 +824,7 @@ class Rothe_propagation:
         else:
             intervene=True
             multi_bonds=0.5
-            maxiter_to_use=300#maxiter
+            maxiter_to_use=maxiter
             solution,new_rothe_error,time,niter=minimize_transformed_bonds(rothe_evaluator.rothe_plus_gradient,
                                                         start_params=start_params,
                                                         gradient=True,
@@ -1308,7 +1308,7 @@ if __name__=="__main__":
         print("Hartree energy:",hartree_energy)
         print("Repulsion energy:",repulsion_energy)
 
-        print("Initial DFT energy: %f"%energy)
+        print("Initial DFT energy: %.10f"%energy)
     rothepropagator=Rothe_propagation(gaussian_nonlincoeffs,lincoeff_initial,pulse=fieldfunc,timestep=dt,points=points,weights=weights,
                                       nfrozen=nfrozen,t=tmax,norms=norms_initial,params_previous=gaussian_nonlincoeffs_prev,method=method)
     rothepropagator.propagate_nsteps(Tmax,maxiter)

@@ -125,10 +125,10 @@ for f in files:
         t_list .append(t)
         dip_list.append(dip)
         err_list.append(errs)
-        if n_iter==0:
-            final_err.append(np.inf)
-        else:
-            final_err .append(float(np.sum(errs)))
+        #if n_iter==0:
+        #    final_err.append(np.inf)
+        #else:
+        final_err .append(float(np.sum(errs)))
         Ninit    .append(n_init)
         Nmax     .append(n_iter)
         epsilons .append(eps)
@@ -145,6 +145,9 @@ if not t_list:
 #  Rank runs by total Rothe error
 # ---------------------------------------------------------
 idx_sorted = sorted(range(len(t_list)), key=lambda i: final_err[i])[::-1]  # low→high
+if molecule == "LiH" and method == "HF" and Wcm2 == 1:
+    #Swap first and second
+    idx_sorted[0], idx_sorted[1] = idx_sorted[1], idx_sorted[0]
 palette    = ["red","seagreen","mediumorchid","darkgoldenrod"][::-1]
 palette=plt.get_cmap('tab10').colors[:4]
 palette=list(palette)
@@ -158,7 +161,7 @@ darker = tuple(c * 0.9 for c in color)    # e.g., ~20% darker
 palette[1]="blue"
 palette[0]=darker
 color_map  = {i: palette[k % len(palette)] for k,i in enumerate(idx_sorted)}
-
+print(palette)
 # › pick two worst & two best (if available) among those w/ HHG data
 qual_pairs = [(i, final_err[i]) for i in idx_sorted if ω_list[i] is not None]
 qual_pairs.sort(key=lambda p: p[1])          # ascending error
@@ -314,11 +317,14 @@ hhg_panel(axC, high_idx, "HHG spectra – no additional Gaussians")
 # Layout tweaks so y‑labels aren’t clipped
 # ---------------------------------------------------------
 fig3.suptitle(
-    f"HHG – {molecule}, {method}, $I_0={Wcm2}\\cdot 10^{{14}}$ W/cm$^2$",
+    f"HHG – {molecule}, {method}, $I_0={Wcm2}\\times 10^{{14}}$ W/cm$^2$",
     fontsize=13,
     x=0.57,
     y=0.975                     # ← control vertical placement
 )
-fig3.subplots_adjust(left=0.17, right=0.98, top=0.85, bottom=0.05)
+#import matplotlib.ticker as ticker
+#if Wcm2 == 1:
+#    axA.yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2f'))
+fig3.subplots_adjust(left=0.18, right=0.98, top=0.85, bottom=0.05)
 fig3.savefig(f"plots/HHG_{molecule}_{fieldstrength:.4f}_{method}.pdf")
 #plt.show()
